@@ -105,7 +105,7 @@ def test_subject_export_is_deterministic_and_surfaces_traceable_weakness(
     assert first_text == second.read_text("utf-8")
     assert "# 数学知识库" in first_text
     assert "分数除法" in first_text
-    assert "趋势: declining" in first_text
+    assert "趋势: 下降" in first_text
     assert "## 错题本" in first_text
     assert "第 2 页第 4 题" in first_text
     assert "doc-20260915-001.md" in first_text

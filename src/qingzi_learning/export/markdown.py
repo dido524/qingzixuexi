@@ -11,6 +11,8 @@ import re
 from typing import Any
 from urllib.parse import quote
 
+from qingzi_learning.export.labels import trend_label
+
 from qingzi_learning.export.publication import write_output
 from qingzi_learning.storage.paths import KnowledgePaths, SubjectTree
 from qingzi_learning.storage.repository import KnowledgeRepository
@@ -173,7 +175,7 @@ class MarkdownExporter:
                     "",
                     f"- 掌握度: {self._percentage_or_no_data(point['mastery_rate'])}（样本 {point['exposure_count']}）",
                     f"- 错误题数: {point['incorrect_count']}；部分正确: {point['partial_count']}；待确认: {point['needs_review']}",
-                    f"- 累计趋势: {point['trend']}；复习优先级: {point['review_priority']}",
+                    f"- 累计趋势: {trend_label(point['trend'])}；复习优先级: {point['review_priority']}",
                     "",
                 ]
             )
@@ -241,7 +243,7 @@ class MarkdownExporter:
             "",
             f"- 掌握度: {self._percentage_or_no_data(point['mastery_rate'])}（样本 {point['exposure_count']}）",
             f"- 正确: {point['correct_count']}；错误: {point['incorrect_count']}；部分正确: {point['partial_count']}；待确认: {point['needs_review']}",
-            f"- 累计趋势: {point['trend']}；复习优先级: {point['review_priority']}",
+            f"- 累计趋势: {trend_label(point['trend'])}；复习优先级: {point['review_priority']}",
             "",
             "## 关联题目与原题追溯",
             "",
@@ -318,7 +320,7 @@ class MarkdownExporter:
         prefix = (
             "样本不足，暂不判断趋势"
             if trend["status"] == "insufficient_data"
-            else f"{trend['status']}（掌握度 {trend['mastery_rate'] * 100:.1f}%）"
+            else f"{trend_label(trend['status'])}（掌握度 {trend['mastery_rate'] * 100:.1f}%）"
         )
         return (
             f"{prefix}（{trend['period_label']}；资料 {trend['document_sample_size']}，"

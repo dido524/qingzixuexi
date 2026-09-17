@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from qingzi_learning.export.labels import trend_label
 from qingzi_learning.export.markdown import MarkdownExporter
 from qingzi_learning.export.publication import write_output
 from qingzi_learning.storage.paths import KnowledgePaths
@@ -57,14 +58,16 @@ class DashboardExporter:
 :root {{ --ink:#1d2a3a;--muted:#64748b;--line:#dbe5ef;--paper:#f5f8fc;--card:#fff;--accent:#2d6ea3; }}
 * {{ box-sizing:border-box; }} body {{ margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 "Microsoft YaHei","Segoe UI",sans-serif; }}
 aside {{ position:fixed;inset:0 auto 0 0;width:220px;padding:28px 20px;background:#183247;color:#fff; }} aside h1 {{ font-size:20px;line-height:1.35;margin:0 0 22px; }} nav a {{ display:block;color:#dcecf8;text-decoration:none;padding:7px 0; }}
-main {{ max-width:1250px;margin-left:220px;padding:30px; }} h2 {{ margin:34px 0 14px;font-size:21px; }} .meta,.subtitle {{ color:var(--muted);font-size:13px; }} .cards {{ display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px; }} .card,.panel {{ background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px; }} .number {{ font-size:28px;font-weight:700;margin:4px 0; }} .layout {{ display:grid;grid-template-columns:1.1fr .9fr;gap:18px; }}
+main {{ max-width:1250px;margin-left:220px;padding:30px; }} h2 {{ margin:34px 0 14px;font-size:21px; }} .meta,.subtitle {{ color:var(--muted);font-size:13px; }} .cards {{ display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px; }} .card,.panel {{ background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px; }} main > section.panel {{ margin-top:18px; }} .number {{ font-size:28px;font-weight:700;margin:4px 0; }}
 table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line); }} th,td {{ text-align:left;padding:12px;border-bottom:1px solid var(--line); }} th {{ background:#edf4f9; }} ul {{ margin:0;padding-left:20px; }} li {{ margin:8px 0; }} a {{ color:var(--accent); }} .future {{ color:var(--muted); }} .pill {{ display:inline-block;padding:2px 8px;border-radius:999px;background:#fff2df;color:#8b4b0a;font-size:12px; }}
-@media (max-width:850px) {{ aside {{ position:static;width:auto; }} main {{ margin:0;padding:20px; }} .cards,.layout {{ grid-template-columns:1fr; }} }}
+.weak-subjects {{ display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px; }} .weak-subject {{ min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:#f9fbfd; }} .weak-subject h3 {{ margin:0 0 10px;font-size:17px;color:var(--accent); }} .weak-subject .empty {{ margin:0;color:var(--muted); }}
+@media (max-width:1050px) {{ .weak-subjects {{ grid-template-columns:1fr; }} }} @media (max-width:850px) {{ aside {{ position:static;width:auto; }} main {{ margin:0;padding:20px; }} .cards {{ grid-template-columns:1fr; }} }}
 </style></head><body>
 <aside><h1>晴子学习知识库</h1><nav><a href="#概览">学习总览</a>{self._subject_nav()}<a href="#错题本">错题本</a><a href="#知识点地图">知识点地图</a><a href="#待确认">待家长确认</a><a href="#最近更新">历次作业与试卷</a></nav></aside>
 <main><section id="概览"><h2>学习总览</h2><p class="subtitle">累计统计：{html.escape(str(period['label']))}，题目样本 {period['sample_size']}；本月统计：{html.escape(str(monthly['label']))}，收录资料样本 {monthly['sample_size']}。</p><div class="cards">{cards}</div></section>
 <section id="学科概况"><h2>三科概况</h2><table><thead><tr><th>科目</th><th>资料</th><th>题目样本</th><th>累计掌握度</th><th>近期趋势</th></tr></thead><tbody>{subjects}</tbody></table></section>
-<section id="知识点地图" class="layout"><div class="panel"><h2>知识点地图 · 重点短板</h2>{self._weak_points(snapshot['weak_knowledge_points'])}</div><div class="panel" id="最近更新"><h2>最近更新</h2>{self._recent_documents(snapshot['recent_documents'], snapshot['recent_documents_truncated'])}</div></section>
+<section id="知识点地图" class="panel"><h2>知识点地图 · 重点短板</h2>{self._weak_points(snapshot['weak_knowledge_points'])}</section>
+<section id="最近更新" class="panel"><h2>最近更新</h2>{self._recent_documents(snapshot['recent_documents'], snapshot['recent_documents_truncated'])}</section>
 <section id="错题本" class="panel"><h2>错题本</h2>{self._error_bank(snapshot['error_bank'], snapshot['error_bank_truncated'])}</section>
 <section id="待确认" class="panel"><h2>待确认入口</h2>{self._pending(snapshot['pending_questions'], snapshot['pending_questions_truncated'])}<p class="future">待确认题目请在“晴子学习助手”桌面程序中复核；本网页仅供只读查看。</p><p class="future">生成考前复习包（后续功能）</p><p class="future">发起掌握度检验（后续功能）</p></section>
 <footer class="meta">此页面离线可用；原始资料、SQLite/JSON 为事实层，页面可随时重新生成。</footer></main>
@@ -88,13 +91,22 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
         )
 
     def _weak_points(self, points: list[dict[str, Any]]) -> str:
-        if not points:
-            return "<p>尚无数据。</p>"
-        return "<ul>" + "".join(
-            f"<li><strong>{self._link(point['knowledge_point'], self.markdown.knowledge_point_path(point['subject'], point['knowledge_point']))}</strong> · {html.escape(point['subject'])} "
-            f"<span class=\"pill\">优先级 {point['review_priority']}</span><br>掌握度 {self._percentage(point['mastery_rate'])}（样本 {point['exposure_count']}） · 累计趋势 {html.escape(point['trend'])} · 错误 {point['incorrect_count']}</li>"
-            for point in points
-        ) + "</ul>"
+        sections = []
+        for subject in self.repo.config.subjects:
+            subject_points = [point for point in points if point["subject"] == subject]
+            if subject_points:
+                body = "<ul>" + "".join(
+                    f"<li><strong>{self._link(point['knowledge_point'], self.markdown.knowledge_point_path(subject, point['knowledge_point']))}</strong> "
+                    f"<span class=\"pill\">优先级 {point['review_priority']}</span><br>掌握度 {self._percentage(point['mastery_rate'])}（样本 {point['exposure_count']}） · 累计趋势 {html.escape(trend_label(point['trend']))} · 错误 {point['incorrect_count']}</li>"
+                    for point in subject_points
+                ) + "</ul>"
+            else:
+                body = '<p class="empty">暂无重点短板。</p>'
+            sections.append(
+                f'<section class="weak-subject" data-subject="{html.escape(subject, quote=True)}">'
+                f"<h3>{html.escape(subject)}</h3>{body}</section>"
+            )
+        return '<div class="weak-subjects">' + "".join(sections) + "</div>"
 
     def _recent_documents(self, documents: list[dict[str, Any]], truncated: bool) -> str:
         if not documents:
@@ -170,7 +182,7 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
     def _trend_text(trend: dict[str, Any]) -> str:
         if trend["status"] == "insufficient_data":
             return f"样本不足，暂不判断趋势（{trend['period_label']}；资料 {trend['document_sample_size']}，题目样本 {trend['question_sample_size']}）"
-        return f"{trend['status']}（{trend['period_label']}；资料 {trend['document_sample_size']}，题目样本 {trend['question_sample_size']}）"
+        return f"{trend_label(trend['status'])}（{trend['period_label']}；资料 {trend['document_sample_size']}，题目样本 {trend['question_sample_size']}）"
 
     @staticmethod
     def _safe_json(snapshot: dict[str, Any]) -> str:

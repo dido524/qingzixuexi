@@ -52,6 +52,8 @@ def test_dashboard_is_self_contained_and_marks_future_actions(
     assert "http://" not in html and "https://" not in html
     assert "尚无数据" in html
     assert "掌握度 0.0%" not in html
+    assert '<section id="知识点地图" class="panel">' in html
+    assert '<section id="最近更新" class="panel">' in html
     assert not path.with_suffix(".html.part").exists()
 
 
@@ -97,6 +99,55 @@ def test_dashboard_embeds_escaped_snapshot_and_renders_weak_point(
     assert "一般现在时\\u003c/script\\u003e" in html
     assert "样本 1" in html
     assert "0.0%" in html
+
+
+def test_weakness_map_groups_points_by_subject_and_localizes_cumulative_trends(
+    dashboard: DashboardExporter,
+) -> None:
+    points = [
+        {
+            "subject": "英语", "knowledge_point": "英语短板", "review_priority": 30,
+            "mastery_rate": 0.5, "exposure_count": 4, "trend": "steady", "incorrect_count": 2,
+        },
+        {
+            "subject": "语文", "knowledge_point": "语文短板", "review_priority": 50,
+            "mastery_rate": 0.25, "exposure_count": 4, "trend": "declining", "incorrect_count": 3,
+        },
+        {
+            "subject": "数学", "knowledge_point": "数学短板", "review_priority": 40,
+            "mastery_rate": 0.75, "exposure_count": 4, "trend": "improving", "incorrect_count": 1,
+        },
+    ]
+
+    rendered = dashboard._weak_points(points)
+
+    chinese = rendered.index('data-subject="语文"')
+    math = rendered.index('data-subject="数学"')
+    english = rendered.index('data-subject="英语"')
+    assert chinese < math < english
+    assert "语文短板" in rendered[chinese:math]
+    assert "数学短板" in rendered[math:english]
+    assert "英语短板" in rendered[english:]
+    assert "累计趋势 下降" in rendered
+    assert "累计趋势 提升" in rendered
+    assert "累计趋势 平稳" in rendered
+    assert "declining" not in rendered
+    assert "improving" not in rendered
+    assert "steady" not in rendered
+
+
+def test_weakness_map_keeps_all_subject_sections_when_only_one_has_data(
+    dashboard: DashboardExporter,
+) -> None:
+    rendered = dashboard._weak_points(
+        [{
+            "subject": "数学", "knowledge_point": "分数除法", "review_priority": 50,
+            "mastery_rate": 0.5, "exposure_count": 2, "trend": "declining", "incorrect_count": 1,
+        }]
+    )
+
+    assert rendered.count('class="weak-subject"') == 3
+    assert rendered.count("暂无重点短板。") == 2
 
 
 def test_dashboard_shows_monthly_collection_and_recent_trend_with_honest_samples(
@@ -148,7 +199,7 @@ def test_dashboard_shows_monthly_collection_and_recent_trend_with_honest_samples
 
     assert "本月收录资料" in html
     assert "最近90天" in html
-    assert "improving" in html
+    assert "提升（最近90天；资料 2，题目样本 2）" in html
     assert "累计至今" in html
     assert "样本 2" in html
     encoded_math = quote("数学", safe="-._~")
