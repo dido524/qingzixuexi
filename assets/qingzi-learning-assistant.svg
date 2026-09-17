@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="晴子学习助手">
+  <rect width="256" height="256" rx="56" fill="#E8F5F1"/>
+  <circle cx="194" cy="62" r="27" fill="#FFD86B"/>
+  <path d="M42 95c34-17 66-15 86 2v88c-22-17-53-19-86-2z" fill="#3E9B8A"/>
+  <path d="M214 95c-34-17-66-15-86 2v88c22-17 53-19 86-2z" fill="#56B6A2"/>
+  <path d="M128 99v84" stroke="#FFFDF7" stroke-width="6" stroke-linecap="round"/>
+  <path d="M67 121c17-5 32-4 45 3M67 144c17-5 32-4 45 3M144 121c17-7 32-8 45-3M144 144c17-7 32-8 45-3" stroke="#FFFDF7" stroke-width="6" stroke-linecap="round"/>
+  <path d="M90 65c9 12 19 18 30 19" stroke="#3E9B8A" stroke-width="7" stroke-linecap="round" fill="none"/>
+</svg>

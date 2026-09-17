@@ -1,0 +1,13 @@
+{
+  "document_id": "teacher_marked_chinese", "subject": "语文", "subject_confidence": 0.99,
+  "document_type": "合成验收练习", "grading_mode": "teacher_marked",
+  "teacher_mark_evidence": ["第1题红色勾，第2题红色叉"],
+  "page_subjects": [
+    {"page": 1, "suggested_subject": "语文", "confidence": 0.99, "needs_confirmation": false, "reason": "语文填空题"},
+    {"page": 2, "suggested_subject": "语文", "confidence": 0.99, "needs_confirmation": false, "reason": "语文填空题"}
+  ],
+  "questions": [
+    {"question_id":"1","question_type":"fill_blank","page":1,"prompt_summary":"春的反义词","student_answer":"秋","reference_answer":"秋","status":"correct","decision_source":"teacher","knowledge_points":["反义词"],"error_categories":[],"confidence":0.99,"reason":"以清晰老师勾号为准"},
+    {"question_id":"2","question_type":"fill_blank","page":2,"prompt_summary":"静的反义词","student_answer":"小","reference_answer":"动","status":"incorrect","decision_source":"teacher","knowledge_points":["反义词"],"error_categories":["词义混淆"],"confidence":0.99,"reason":"老师红叉及改正答案"}
+  ], "summary":"反义词需要复习。"
+}

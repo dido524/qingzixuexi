@@ -1,0 +1,12 @@
+{
+  "document_id":"mixed_english","subject":"英语","subject_confidence":0.99,
+  "document_type":"合成验收练习","grading_mode":"mixed","teacher_mark_evidence":["第1题有老师红叉"],
+  "page_subjects":[
+    {"page":1,"suggested_subject":"英语","confidence":0.99,"needs_confirmation":false,"reason":"英语动词填空题"},
+    {"page":2,"suggested_subject":"英语","confidence":0.99,"needs_confirmation":false,"reason":"英语开放表达题"}
+  ],
+  "questions":[
+    {"question_id":"1","question_type":"fill_blank","page":1,"prompt_summary":"She __ a book. (have)","student_answer":"have","reference_answer":"has","status":"incorrect","decision_source":"teacher","knowledge_points":["第三人称单数"],"error_categories":["动词形式"],"confidence":0.99,"reason":"老师红叉与has改正"},
+    {"question_id":"2","question_type":"short_answer","page":2,"prompt_summary":"Describe your weekend.","student_answer":"I play.","reference_answer":"开放答案","status":"partial","decision_source":"model","knowledge_points":["英语表达"],"error_categories":["表达细节"],"confidence":0.8,"reason":"回答简短，需要家长核对题目要求"}
+  ],"summary":"复习第三人称单数，开放表达待确认。"
+}

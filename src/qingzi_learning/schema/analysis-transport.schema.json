@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Qingzi analysis transport for Structured Outputs",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "document_id",
+    "subject",
+    "subject_confidence",
+    "document_type",
+    "grading_mode",
+    "teacher_mark_evidence",
+    "page_subjects",
+    "questions",
+    "summary"
+  ],
+  "properties": {
+    "document_id": {"type": "string", "minLength": 1},
+    "subject": {"type": "string", "enum": ["语文", "数学", "英语"]},
+    "subject_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "document_type": {"type": "string", "minLength": 1},
+    "grading_mode": {"type": "string", "enum": ["teacher_marked", "auto_grade", "mixed"]},
+    "teacher_mark_evidence": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "page_subjects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/page_subject"}
+    },
+    "questions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/question"}
+    },
+    "summary": {"type": "string"}
+  },
+  "$defs": {
+    "page_subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page", "suggested_subject", "confidence", "needs_confirmation", "reason"],
+      "properties": {
+        "page": {"type": "integer", "minimum": 1},
+        "suggested_subject": {"type": "string", "enum": ["语文", "数学", "英语"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "needs_confirmation": {
+          "type": "boolean",
+          "description": "单页含多个学科或页面内容不足时，无论置信度高低，都必须设置 needs_confirmation=true；学科判断置信度较低时也必须设置为 true。"
+        },
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question_id",
+        "question_type",
+        "page",
+        "prompt_summary",
+        "student_answer",
+        "reference_answer",
+        "status",
+        "decision_source",
+        "knowledge_points",
+        "error_categories",
+        "confidence",
+        "reason"
+      ],
+      "properties": {
+        "question_id": {"type": "string", "minLength": 1},
+        "question_type": {"type": "string", "enum": ["objective", "fill_blank", "calculation", "application", "reading_open", "composition", "translation", "short_answer", "other"]},
+        "page": {"type": "integer", "minimum": 1},
+        "prompt_summary": {"type": "string"},
+        "student_answer": {"type": "string"},
+        "reference_answer": {"type": "string"},
+        "status": {"type": "string", "enum": ["correct", "incorrect", "partial", "needs_review"]},
+        "decision_source": {"type": "string", "enum": ["teacher", "model", "mixed"]},
+        "knowledge_points": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "error_categories": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "reason": {"type": "string"}
+      }
+    }
+  }
+}
