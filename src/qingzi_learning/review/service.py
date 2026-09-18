@@ -9,6 +9,7 @@ from qingzi_learning.export.publication import PublicationCoordinator
 from qingzi_learning.export.safe_write import _guard, atomic_write
 from qingzi_learning.knowledge.updater import KnowledgeUpdater, UpdateSummary
 from qingzi_learning.storage.repository import KnowledgeRepository
+from qingzi_learning.grading.annotation import annotated_page_path
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class ReviewItem:
     subject: str
     page: int
     source_path: Path
+    annotated_path: Path
     prompt_summary: str
     student_answer: str
     reference_answer: str
@@ -41,8 +43,9 @@ class ReviewService:
 
     def get_question(self, document_id: str, question_id: str) -> ReviewItem:
         row = self.repo.review_question(document_id, question_id)
+        source = Path(row["source_path"])
         return ReviewItem(*(row[key] for key in ("document_id", "question_id", "subject", "page")),
-                          Path(row["source_path"]), *(row[key] for key in (
+                          source, annotated_page_path(source, row["page"]), *(row[key] for key in (
                               "prompt_summary", "student_answer", "reference_answer", "reason", "confidence", "status",
                               "decision_source", "original_status", "original_decision_source")),
                           row["review_note"] or "", row["version"])

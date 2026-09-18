@@ -1243,6 +1243,19 @@ def test_saved_and_selected_recovery_paths_are_visible_and_actions_are_bound(wit
     assert opened[-1] == corrupt
 
 
+def test_existing_analysis_button_prefers_grading_gallery(withdrawn_app, tmp_path):
+    app, opened = withdrawn_app
+    folder = tmp_path / "result"; folder.mkdir()
+    analysis = folder / "analysis.md"; analysis.touch()
+    gallery = folder / "批改结果.html"; gallery.touch()
+    app.vm.completion = CompletionSummary(
+        saved_folder=folder, analysis_details_path=analysis, grading_gallery_path=gallery,
+    )
+    app._refresh()
+    app.buttons["details"].invoke()
+    assert opened == [gallery]
+
+
 def test_saved_folder_visible_immediately_after_capture_and_empty_actions_disabled(withdrawn_app, tmp_path):
     app, opened = withdrawn_app
     assert app.buttons["folder"].cget("state") == "disabled"

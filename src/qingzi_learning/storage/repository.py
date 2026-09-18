@@ -1035,6 +1035,10 @@ class KnowledgeRepository:
         ).fetchone()
         return int(row["count"])
 
+    def document_review_count(self, document_id: str) -> int:
+        """Return unresolved effective judgments for one document."""
+        return self._document_review_count(document_id)
+
     def review_question(self, document_id: str, question_id: str) -> dict[str, Any]:
         """Read effective judgment and a version tied to original page evidence."""
         document = self.get_document(document_id)
@@ -1237,7 +1241,10 @@ class KnowledgeRepository:
                     question.student_answer,
                     question.reference_answer,
                     question.status.value,
-                    question.decision_source,
+                    ("model_pending" if analysis.grading_mode.value == "auto_grade"
+                     and question.decision_source == "model"
+                     and question.status.value in {"incorrect", "partial"}
+                     and question.answer_bbox is not None else question.decision_source),
                     self._json(question.error_categories),
                     question.confidence,
                     question.reason,

@@ -61,7 +61,7 @@ def prepare(harness, name):
 
 @pytest.mark.parametrize("name,subject,point,state", [
     ("teacher_marked_chinese.json", "语文", "反义词", "completed"),
-    ("unmarked_math.json", "数学", "同分母分数加法", "completed"),
+    ("unmarked_math.json", "数学", "同分母分数加法", "needs_review"),
     ("mixed_english.json", "英语", "第三人称单数", "needs_review"),
 ])
 def test_subject_fixture_updates_correct_tree_and_preserves_evidence(harness, name, subject, point, state):
@@ -74,11 +74,16 @@ def test_subject_fixture_updates_correct_tree_and_preserves_evidence(harness, na
     assert repo.get_document(outcome.job_id)["subject"] == subject
     assert outcome.dashboard_path.exists() and subject in outcome.analysis_markdown.parts
     assert [path.name for path in outcome.archived_pages] == ["page_001.jpg", "page_002.jpg"]
+    if name == "unmarked_math.json":
+        assert len(outcome.annotated_pages) == 2 and all(path.exists() for path in outcome.annotated_pages)
+        assert outcome.grading_gallery_path.exists()
+        assert "模型建议，待家长确认" in outcome.grading_gallery_path.read_text("utf-8")
     for number, path in enumerate(outcome.archived_pages, start=1):
         assert sha256(path.read_bytes()).hexdigest() == original_hashes[number]
         with Image.open(path) as image:
             image.verify()
-    assert repo.get_knowledge_stats(subject, point).incorrect_count == 1
+    expected_errors = 0 if name == "unmarked_math.json" else 1
+    assert repo.get_knowledge_stats(subject, point).incorrect_count == expected_errors
     assert PublicationCoordinator(repo).current()
     if subject == "英语":
         stats = repo.get_knowledge_stats(subject, "英语表达")
@@ -88,6 +93,12 @@ def test_subject_fixture_updates_correct_tree_and_preserves_evidence(harness, na
         review.confirm_question(outcome.job_id, "2", "correct", "I play.", "合成样例人工确认", expected_version=item.version)
         assert repo.get_knowledge_stats(subject, "英语表达").correct_count == 1
         assert PublicationCoordinator(repo).current()
+    if name == "unmarked_math.json":
+        review = ReviewService(repo)
+        item = review.get_question(outcome.job_id, "2")
+        assert item.annotated_path.exists()
+        review.confirm_question(outcome.job_id, "2", "incorrect", "3/5", "家长确认模型批改",
+                                expected_version=item.version)
     controller.retry_pending(outcome.job_id)
     controller.retry_pending(outcome.job_id)
     assert runner.calls == 1
@@ -107,8 +118,12 @@ def test_injected_network_failure_recovers_twice_without_duplicate_facts(harness
     runner.fail = False
     first = controller.retry_pending(outcome.job_id)
     second = controller.retry_pending(outcome.job_id)
-    assert first == second and first.state == "completed"
+    assert first == second and first.state == "needs_review"
     assert runner.calls == 2
+    assert repo.get_knowledge_stats("数学", "同分母分数加法").exposure_count == 1
+    item = ReviewService(repo).get_question(outcome.job_id, "2")
+    controller.review.confirm_question(outcome.job_id, "2", "incorrect", "3/5", "家长确认",
+                                       expected_version=item.version)
     assert repo.get_knowledge_stats("数学", "同分母分数加法").exposure_count == 2
     assert repo.connection.execute("SELECT count(*) FROM documents").fetchone()[0] == 1
     assert repo.connection.execute("SELECT count(*) FROM questions").fetchone()[0] == 2

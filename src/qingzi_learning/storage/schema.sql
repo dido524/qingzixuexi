@@ -197,14 +197,24 @@ CREATE TABLE IF NOT EXISTS review_publications (
     pending INTEGER NOT NULL DEFAULT 1
 );
 
-CREATE VIEW IF NOT EXISTS effective_questions AS
+DROP VIEW IF EXISTS effective_questions;
+CREATE VIEW effective_questions AS
 SELECT q.document_id, q.question_id, q.question_type, q.page, q.prompt_summary,
        q.student_answer,
        CASE WHEN r.document_id IS NULL OR r.corrected_answer = '' THEN q.reference_answer ELSE r.corrected_answer END AS reference_answer,
-       COALESCE(r.final_status, q.status) AS status,
-       CASE WHEN r.document_id IS NULL THEN q.decision_source ELSE 'parent' END AS decision_source,
+       CASE
+         WHEN r.document_id IS NOT NULL THEN r.final_status
+         WHEN q.decision_source = 'model_pending'
+              AND q.status IN ('incorrect', 'partial') THEN 'needs_review'
+         ELSE q.status
+       END AS status,
+       CASE WHEN r.document_id IS NOT NULL THEN 'parent'
+            WHEN q.decision_source = 'model_pending' THEN 'model'
+            ELSE q.decision_source END AS decision_source,
        q.error_categories_json, q.confidence, q.reason,
-       q.status AS original_status, q.decision_source AS original_decision_source,
+       q.status AS original_status,
+       CASE WHEN q.decision_source = 'model_pending' THEN 'model'
+            ELSE q.decision_source END AS original_decision_source,
        q.reference_answer AS original_reference_answer,
        COALESCE(r.revision, 0) AS review_revision, r.note AS review_note, r.confirmed_at
 FROM questions q LEFT JOIN parent_reviews r

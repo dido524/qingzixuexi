@@ -6,7 +6,7 @@
     {"page":2,"suggested_subject":"数学","confidence":0.99,"needs_confirmation":false,"reason":"分数计算题"}
   ],
   "questions":[
-    {"question_id":"1","source_exam_question_id":null,"question_type":"calculation","page":1,"prompt_summary":"3/4 + 1/4","student_answer":"1","reference_answer":"1","status":"correct","decision_source":"model","knowledge_points":["同分母分数加法"],"error_categories":[],"confidence":0.99,"reason":"分母不变，分子相加"},
-    {"question_id":"2","source_exam_question_id":null,"question_type":"calculation","page":2,"prompt_summary":"2/5 + 1/5","student_answer":"3/10","reference_answer":"3/5","status":"incorrect","decision_source":"model","knowledge_points":["同分母分数加法"],"error_categories":["分母错误相加"],"confidence":0.99,"reason":"分母应保持5"}
+    {"question_id":"1","source_exam_question_id":null,"question_type":"calculation","page":1,"prompt_summary":"3/4 + 1/4","student_answer":"1","reference_answer":"1","status":"correct","decision_source":"model","knowledge_points":["同分母分数加法"],"error_categories":[],"confidence":0.99,"reason":"分母不变，分子相加","answer_bbox":{"x":0.2,"y":0.35,"width":0.3,"height":0.1}},
+    {"question_id":"2","source_exam_question_id":null,"question_type":"calculation","page":2,"prompt_summary":"2/5 + 1/5","student_answer":"3/10","reference_answer":"3/5","status":"incorrect","decision_source":"model","knowledge_points":["同分母分数加法"],"error_categories":["分母错误相加"],"confidence":0.99,"reason":"分母应保持5","answer_bbox":{"x":0.2,"y":0.35,"width":0.3,"height":0.1}}
   ],"summary":"注意同分母分数相加时分母不变。"
 }

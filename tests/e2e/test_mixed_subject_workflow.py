@@ -68,7 +68,7 @@ def facts(repo):
 
 
 def assert_split_published(config, repo, controller, outcome, original_hashes):
-    assert outcome.state == "completed"
+    assert outcome.state == "needs_review"
     assert outcome.subject is None
     assert not outcome.pending_page_subjects
     assert outcome.child_document_ids == ("six-page-mixed--math", "six-page-mixed--english")
@@ -100,8 +100,10 @@ def assert_split_published(config, repo, controller, outcome, original_hashes):
         assert all(point in note for point in points)
         assert all(point not in note for point in other_points)
         assert child_id in dashboard
-        for point in points:
-            assert repo.get_knowledge_stats(subject, point).exposure_count == 1
+        for question in document["questions"]:
+            for point in question["knowledge_points"]:
+                stats = repo.get_knowledge_stats(subject, point)
+                assert stats.exposure_count == (0 if question["status"] == "needs_review" else 1)
     assert PublicationCoordinator(repo).current()
 
 
@@ -119,9 +121,9 @@ def test_six_page_batch_auto_splits_math_and_english(app_harness):
     assert runner.calls == 1
     before = facts(repo)
     for _ in range(2):
-        assert controller.finish_and_analyze(session).state == "completed"
+        assert controller.finish_and_analyze(session).state == "needs_review"
         for job_id in (outcome.job_id, *outcome.child_document_ids):
-            assert controller.retry_pending(job_id).state == "completed"
+            assert controller.retry_pending(job_id).state == "needs_review"
     assert facts(repo) == before
     assert runner.calls == 1
     assert_split_published(config, repo, controller, outcome, original_hashes)
@@ -193,13 +195,13 @@ def test_persisted_legacy_cache_recovers_with_whole_batch_confirmation_and_no_mo
 
         completed = restarted.confirm_subject(recovered.job_id, "数学")
 
-        assert completed.state == "completed" and completed.child_document_ids == ()
+        assert completed.state == "needs_review" and completed.child_document_ids == ()
         assert completed.analysis_markdown.exists() and completed.dashboard_path.exists()
         document = reopened.get_document(completed.job_id)
         assert [p["page_number"] for p in document["pages"]] == [1, 2]
         assert all(sha256(Path(p["path"]).read_bytes()).hexdigest() == hashes[p["page_number"]]
                    for p in document["pages"])
-        assert reopened.get_knowledge_stats("数学", "同分母分数加法").exposure_count == 2
+        assert reopened.get_knowledge_stats("数学", "同分母分数加法").exposure_count == 1
         before = facts(reopened)
         restarted.retry_pending(completed.job_id)
         restarted.retry_pending(completed.job_id)

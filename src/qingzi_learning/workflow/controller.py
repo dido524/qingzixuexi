@@ -22,6 +22,7 @@ from qingzi_learning.export.dashboard import DashboardExporter
 from qingzi_learning.export.markdown import MarkdownExporter
 from qingzi_learning.export.publication import PublicationCoordinator
 from qingzi_learning.export.safe_write import _guard, atomic_write
+from qingzi_learning.grading.annotation import AnnotationRenderer
 from qingzi_learning.knowledge.updater import KnowledgeUpdater
 from qingzi_learning.review.service import ReviewService
 from qingzi_learning.reporting.service import LearningReportService
@@ -52,6 +53,8 @@ class WorkflowOutcome:
     child_document_ids: tuple[str, ...] = ()
     page_subject_index: int = 0
     page_subject_total: int = 0
+    annotated_pages: tuple[Path, ...] = ()
+    grading_gallery_path: Path | None = None
 
 
 class _WorkflowSuperseded(Exception):
@@ -73,6 +76,7 @@ class WorkflowController:
         self.updater = updater or KnowledgeUpdater(repo)
         self.markdown = markdown or MarkdownExporter(repo, self.paths)
         self.dashboard = dashboard or DashboardExporter(repo, self.paths)
+        self.annotations = AnnotationRenderer(config.knowledge_root)
         self.review = ReviewService(repo, updater=self.updater, markdown=self.markdown, dashboard=self.dashboard)
         self.reports = LearningReportService(repo)
         self.exams = TargetedExamService(repo)
@@ -436,12 +440,13 @@ class WorkflowController:
             job = self._save_if_current(job, replace(job, state="analyzing", last_error=None))
             job = self._archive(job, "raw")
             analysis = self._analysis_from_payload(job.payload["analysis"])
+            job = self._ensure_annotations(job, analysis)
             if not job.knowledge_applied:
                 # Pages exist at durable archive paths before questions are committed.
                 self.repo.save_analysis(analysis)
                 self.updater.apply(analysis)
                 job = self._require_job(job.job_id)
-            terminal = "needs_review" if any(q.status.value == "needs_review" for q in analysis.questions) else "completed"
+            terminal = "needs_review" if self.repo.document_review_count(job.job_id) else "completed"
             candidate = replace(job, state=terminal, payload=dict(
                 job.payload, export_pending=True, ordinary_publication_id=uuid4().hex))
             job = self._save_if_current(job, candidate)
@@ -497,6 +502,12 @@ class WorkflowController:
                 publish_state="not_started", child_document_ids=[],
                 mirror_path=str(document.session_dir / "analysis_state.json"),
             )
+            if any(question.answer_bbox is not None for question in analysis.questions):
+                artifacts = self.annotations.render(document, analysis)
+                payload.update(
+                    annotated_pages=[str(path) for path in artifacts.pages],
+                    grading_gallery_path=str(artifacts.gallery),
+                )
             child = WorkflowJob(document.document_id, "pending", analysis.subject.value, False, None, payload)
             children.append((child, document, analysis))
         if job.payload.get("archive_kind") == "pending":
@@ -948,7 +959,27 @@ class WorkflowController:
             (job.payload.get("analysis") or {}).get("document_type", "作业"))
 
     def _analysis_from_payload(self, payload: dict):
-        return _from_payload(payload, allow_legacy="page_subjects" not in payload)
+        legacy = ("page_subjects" not in payload or any(
+            "answer_bbox" not in question for question in payload.get("questions", ())
+        ))
+        return _from_payload(payload, allow_legacy=legacy)
+
+    def _ensure_annotations(self, job: WorkflowJob, analysis) -> WorkflowJob:
+        """Render or verify deterministic grading copies from archived originals."""
+        # Historical cached analyses predate coordinate OCR. Their ordinary
+        # publication must remain replayable without trying to decode test or
+        # legacy evidence as a new image.
+        if not any(question.answer_bbox is not None for question in analysis.questions):
+            return job
+        artifacts = self.annotations.render(self._document(job), analysis)
+        paths = [str(path) for path in artifacts.pages]
+        if (job.payload.get("annotated_pages") == paths
+                and job.payload.get("grading_gallery_path") == str(artifacts.gallery)):
+            return job
+        return self._save_if_current(job, replace(job, payload=dict(
+            job.payload, annotated_pages=paths,
+            grading_gallery_path=str(artifacts.gallery),
+        )))
 
     @staticmethod
     def _is_legacy_confirmation(job: WorkflowJob) -> bool:
@@ -1038,6 +1069,9 @@ class WorkflowController:
             child_document_ids=tuple(payload.get("child_document_ids", ())),
             page_subject_index=confirmation_index,
             page_subject_total=confirmation_total,
+            annotated_pages=tuple(Path(path) for path in payload.get("annotated_pages", ())),
+            grading_gallery_path=(Path(payload["grading_gallery_path"])
+                                  if payload.get("grading_gallery_path") else None),
         )
 
     def _spool_guard(self, path: Path) -> None:

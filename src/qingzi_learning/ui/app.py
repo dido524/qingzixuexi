@@ -50,6 +50,7 @@ class CompletionSummary:
     review_count: int = 0
     analysis_details_path: Path | None = None
     library_pending_count: int = 0
+    grading_gallery_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -429,8 +430,8 @@ class WorkflowWorker(threading.Thread):
             weak = tuple(dict.fromkeys(p for q in questions if q["status"] in {"incorrect", "partial"} for p in q["knowledge_points"]))[:3]
             return CompletionSummary(folder, len(questions), sum(q["status"] in {"incorrect", "partial"} for q in questions), weak,
                                      sum(q["status"] == "needs_review" for q in questions), outcome.analysis_markdown,
-                                     int(snapshot["summary"]["pending_count"]))
-        except (AttributeError, KeyError, TypeError, ValueError): return CompletionSummary(saved_folder=folder, analysis_details_path=outcome.analysis_markdown)
+                                     int(snapshot["summary"]["pending_count"]), outcome.grading_gallery_path)
+        except (AttributeError, KeyError, TypeError, ValueError): return CompletionSummary(saved_folder=folder, analysis_details_path=outcome.analysis_markdown, grading_gallery_path=outcome.grading_gallery_path)
 
     def _release(self) -> None:
         self._release_camera()
@@ -1139,7 +1140,8 @@ class LearningAssistantApp:
                 "review":not page_modal and not self.vm.busy and not self.vm.worker_failed,
                 "retry":not page_modal and not self.vm.busy and not self.vm.worker_failed and self._selected_recovery() is not None,
                 "folder":bool(target.saved_folder and target.saved_folder.exists()),
-                "details":bool(target.analysis_details_path and target.analysis_details_path.exists()),
+                "details":bool((target.grading_gallery_path and target.grading_gallery_path.exists())
+                               or (target.analysis_details_path and target.analysis_details_path.exists())),
                 "dashboard":(self.config.knowledge_root/"知识库首页.html").exists(),
                 "learning":not page_modal and not self.vm.busy and not self.vm.worker_failed}
         self.buttons["capture"].configure(text="开始下一份" if self.vm.sealed else "拍下这一页")
@@ -1154,7 +1156,8 @@ class LearningAssistantApp:
         if event.completion is not None:return event.completion
         outcome=event.outcome
         folder=(outcome.archived_pages[0].parent if outcome.archived_pages else outcome.recovery_path) if outcome else event.page_path
-        return CompletionSummary(saved_folder=folder,analysis_details_path=outcome.analysis_markdown if outcome else None)
+        return CompletionSummary(saved_folder=folder,analysis_details_path=outcome.analysis_markdown if outcome else None,
+                                 grading_gallery_path=outcome.grading_gallery_path if outcome else None)
     def open_folder(self):
         path=self._selected_completion().saved_folder
         if path and path.exists():self._open_path(path)
@@ -1162,7 +1165,8 @@ class LearningAssistantApp:
         path=self.config.knowledge_root/"知识库首页.html"
         if path.exists():self._open_path(path)
     def open_details(self):
-        path=self._selected_completion().analysis_details_path
+        target=self._selected_completion()
+        path=target.grading_gallery_path or target.analysis_details_path
         if path and path.exists():self._open_path(path)
     def close(self):
         if self._closing:return

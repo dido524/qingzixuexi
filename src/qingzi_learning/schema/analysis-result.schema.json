@@ -114,7 +114,26 @@
           "items": {"type": "string"}
         },
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-        "reason": {"type": "string"}
+        "reason": {"type": "string"},
+        "answer_bbox": {
+          "oneOf": [
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["x", "y", "width", "height"],
+              "properties": {
+                "x": {"type": "number", "minimum": 0, "maximum": 1},
+                "y": {"type": "number", "minimum": 0, "maximum": 1},
+                "width": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+                "height": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+              }
+            },
+            {
+              "type": "array", "minItems": 4, "maxItems": 4,
+              "items": {"type": "number"}
+            },
+            {"type": "null"}
+          ]
+        }
       }
     }
   }

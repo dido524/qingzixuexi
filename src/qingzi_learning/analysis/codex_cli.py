@@ -131,7 +131,7 @@ class CodexCliAnalyzer:
                 parse_constant=_reject_constant, object_pairs_hook=_unique_object,
             )
             result = _from_payload(payload)
-            validate_result(result, document)
+            validate_result(result, document, require_answer_bbox=True)
         except (OSError, ValueError, TypeError, KeyError, ValidationError):
             raise AnalysisError("invalid_response") from None
         return result
@@ -177,6 +177,8 @@ def _prompt(document: CapturedDocument) -> str:
         "单页含多个学科或页面内容不足时，无论置信度高低，都必须设置 needs_confirmation=true；"
         "学科判断置信度较低时也必须设置为 true。"
         "所有题目使用整份资料内唯一 question_id，page 对应输入页码。"
+        "必须逐题 OCR 学生作答，并输出 answer_bbox={x,y,width,height}；它要紧密覆盖学生答案区域或作答区域，"
+        "四个数均按原始页面宽高归一化到0到1，宽高必须大于0，矩形不得越出页面。"
         "只返回符合提供的 JSON Schema 的 JSON，不加 Markdown 或解释。\n"
         f"资料上下文：{context}"
     )
@@ -208,7 +210,11 @@ def _from_payload(payload: dict, *, allow_legacy: bool = False) -> AnalysisResul
                "question_type": QuestionType(question["question_type"]),
                "status": QuestionStatus(question["status"]),
                "knowledge_points": tuple(question["knowledge_points"]),
-               "error_categories": tuple(question["error_categories"])},
+               "error_categories": tuple(question["error_categories"]),
+               "answer_bbox": ((tuple(question["answer_bbox"][name] for name in ("x", "y", "width", "height"))
+                                if isinstance(question.get("answer_bbox"), dict)
+                                else tuple(question["answer_bbox"]))
+                               if question.get("answer_bbox") is not None else None)},
         ) for question in payload["questions"]
     )
     return AnalysisResult(
@@ -220,9 +226,12 @@ def _from_payload(payload: dict, *, allow_legacy: bool = False) -> AnalysisResul
     )
 
 
-def validate_result(result: AnalysisResult, document: CapturedDocument) -> None:
+def validate_result(result: AnalysisResult, document: CapturedDocument, *, require_answer_bbox: bool = False) -> None:
     """Revalidate typed results as well as their binding to captured evidence."""
     payload = json.loads(json.dumps(asdict(result), ensure_ascii=False, allow_nan=False))
+    for question in payload["questions"]:
+        if question.get("answer_bbox") is not None:
+            question["answer_bbox"] = dict(zip(("x", "y", "width", "height"), question["answer_bbox"]))
     validate_analysis_payload(payload)
     if result.document_id != document.document_id:
         raise ValueError("分析结果资料标识不匹配")
@@ -236,3 +245,9 @@ def validate_result(result: AnalysisResult, document: CapturedDocument) -> None:
         if question.page not in page_numbers or question.question_id in question_ids:
             raise ValueError("分析结果题号或页码不合法")
         question_ids.add(question.question_id)
+        if require_answer_bbox and question.answer_bbox is None:
+            raise ValueError("分析结果缺少答案区域")
+        if question.answer_bbox is not None:
+            x, y, width, height = question.answer_bbox
+            if min(x, y) < 0 or width <= 0 or height <= 0 or x + width > 1 or y + height > 1:
+                raise ValueError("答案区域超出页面")

@@ -72,6 +72,21 @@ def test_codex_command_is_read_only_and_uses_argument_list(runner, document):
     assert result.questions[1].page == 2
     assert result.subject.value == "语文"
     assert result.questions[0].status.value == "correct"
+    assert result.questions[0].answer_bbox == (0.12, 0.28, 0.34, 0.09)
+    assert all(term in options["input"] for term in ("answer_bbox", "归一化", "答案区域"))
+
+
+@pytest.mark.parametrize("bbox", [
+    {"x": -0.01, "y": 0.2, "width": 0.3, "height": 0.2},
+    {"x": 0.1, "y": 0.2, "width": 0.0, "height": 0.2},
+    {"x": 0.8, "y": 0.2, "width": 0.3, "height": 0.2},
+    {"x": 0.1, "y": 0.9, "width": 0.3, "height": 0.2},
+])
+def test_rejects_invalid_or_out_of_page_answer_boxes(runner, document, bbox):
+    runner.payload["questions"][0]["answer_bbox"] = bbox
+    with pytest.raises(analysis_error()) as caught:
+        adapter(runner).analyze(document)
+    assert caught.value.code == "invalid_response"
 
 
 def test_new_model_response_requires_page_subject_mapping(runner, document):
@@ -241,7 +256,7 @@ def test_transport_preserves_domain_required_fields_and_enums():
         (transport["$defs"]["page_subject"], domain["$defs"]["page_subject"]),
         (transport["$defs"]["question"], domain["$defs"]["question"]),
     ):
-        assert set(transport_object["required"]) == set(domain_object["required"])
+        assert set(domain_object["required"]).issubset(transport_object["required"])
         assert set(transport_object["properties"]) == set(domain_object["properties"])
         for name, field in domain_object["properties"].items():
             if "enum" in field:

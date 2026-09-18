@@ -187,6 +187,22 @@ def test_saving_same_analysis_twice_does_not_duplicate_questions(
     assert repo.count_questions(stored_analysis.document_id) == len(stored_analysis.questions)
 
 
+def test_model_error_waits_for_parent_before_entering_effective_error_bank(
+    repo: KnowledgeRepository, stored_analysis: AnalysisResult
+) -> None:
+    proposed = replace(stored_analysis, grading_mode=GradingMode.AUTO_GRADE, questions=(replace(
+        stored_analysis.questions[0], decision_source="model", status=QuestionStatus.INCORRECT,
+        answer_bbox=(.2, .3, .4, .1),
+    ),))
+    repo.save_analysis(proposed)
+
+    question = repo.get_document(proposed.document_id)["questions"][0]
+    assert question["original_status"] == "incorrect"
+    assert question["status"] == "needs_review"
+    assert repo.count_review_items() == 1
+    assert repo.get_knowledge_stats("数学", "分数除法").exposure_count == 0
+
+
 def test_saving_analysis_replaces_old_question_knowledge_point_links(
     repo: KnowledgeRepository, stored_analysis: AnalysisResult
 ) -> None:

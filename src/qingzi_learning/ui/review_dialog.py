@@ -9,13 +9,18 @@ class ReviewDialog:
         self.item = None
         self.window = tk.Toplevel(parent)
         self.window.title("待家长确认")
+        self.window.geometry("1020x780")
+        self.window.minsize(880, 650)
         self.window.protocol("WM_DELETE_WINDOW", lambda: on_close(dialog_id))
         self.preview = tk.Label(self.window, text="正在读取…")
         self.preview.pack(padx=12, pady=8)
         self.evidence_var = tk.StringVar(master=self.window)
         tk.Label(self.window, textvariable=self.evidence_var, wraplength=740, justify="left").pack(fill="x", padx=12)
-        self.open_button = tk.Button(self.window, text="打开完整原图", command=self.open_source)
-        self.open_button.pack()
+        open_row = tk.Frame(self.window); open_row.pack()
+        self.open_button = tk.Button(open_row, text="打开批改图", command=self.open_annotated)
+        self.open_button.pack(side="left", padx=5)
+        self.original_button = tk.Button(open_row, text="打开完整原图", command=self.open_source)
+        self.original_button.pack(side="left", padx=5)
         self.status_var = tk.StringVar(master=self.window)
         choices = tk.Frame(self.window); choices.pack()
         for label, value in (("正确", "correct"), ("错误", "incorrect"), ("部分正确", "partial")):
@@ -33,9 +38,11 @@ class ReviewDialog:
     def show(self, items, message=""):
         self.item = items[0] if items else None
         self.message_var.set(message or (f"还有 {len(items)} 道待确认题目。" if items else "所有待确认题目已处理。"))
-        self.status_var.set(""); self.answer_var.set(""); self.note_var.set("")
+        proposed = self.item.original_status if self.item and self.item.original_status in {"incorrect", "partial"} else ""
+        self.status_var.set(proposed); self.answer_var.set(""); self.note_var.set("")
         self.save_button.configure(state="normal" if self.item else "disabled")
-        self.open_button.configure(state="normal" if self.item and self.item.source_path.exists() else "disabled")
+        self.open_button.configure(state="normal" if self.item and self.item.annotated_path.exists() else "disabled")
+        self.original_button.configure(state="normal" if self.item and self.item.source_path.exists() else "disabled")
         if not self.item:
             self.evidence_var.set("暂无待家长确认的题目。"); self.preview.configure(image="", text="复核完成")
             return
@@ -46,8 +53,9 @@ class ReviewDialog:
             f"当前判断：{q.status}（{q.decision_source}）；原判断：{q.original_status}（{q.original_decision_source}）\n"
             f"系统理由：{q.reason}\n原置信度：{q.confidence:.2f}\n原图：{q.source_path}")
         try:
-            with Image.open(q.source_path) as source:
-                preview = source.copy(); preview.thumbnail((700, 320))
+            preview_path = q.annotated_path if q.annotated_path.exists() else q.source_path
+            with Image.open(preview_path) as source:
+                preview = source.copy(); preview.thumbnail((900, 520))
             self._photo = ImageTk.PhotoImage(preview, master=self.window)
             self.preview.configure(image=self._photo, text="")
         except (OSError, ValueError):
@@ -55,6 +63,9 @@ class ReviewDialog:
 
     def open_source(self):
         if self.item and self.item.source_path.exists(): self.open_path(self.item.source_path)
+
+    def open_annotated(self):
+        if self.item and self.item.annotated_path.exists(): self.open_path(self.item.annotated_path)
 
     def save(self):
         if self.item is None: return

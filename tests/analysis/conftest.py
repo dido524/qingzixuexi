@@ -62,6 +62,7 @@ def payload(document):
                 "error_categories": [],
                 "confidence": 0.96,
                 "reason": "清晰的老师勾号",
+                "answer_bbox": {"x": 0.12, "y": 0.28, "width": 0.34, "height": 0.09},
             },
             {
                 "question_id": "2",
@@ -77,6 +78,7 @@ def payload(document):
                 "error_categories": ["内容"],
                 "confidence": 0.89,
                 "reason": "内容不够具体",
+                "answer_bbox": {"x": 0.08, "y": 0.20, "width": 0.84, "height": 0.62},
             },
         ],
         "summary": "作文内容有待确认。",

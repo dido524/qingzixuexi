@@ -79,6 +79,7 @@ class QuestionAnalysis:
     confidence: float
     reason: str
     source_exam_question_id: str | None = None
+    answer_bbox: tuple[float, float, float, float] | None = None
 
     @property
     def counts_toward_mastery(self) -> bool:
@@ -121,4 +122,7 @@ def validate_analysis_payload(payload: Mapping[str, Any], *, allow_legacy: bool 
             schema["required"].remove("source_exam_id")
         if any("source_exam_question_id" not in question for question in payload.get("questions", ())):
             schema["$defs"]["question"]["required"].remove("source_exam_question_id")
+        if ("answer_bbox" in schema["$defs"]["question"]["required"]
+                and any("answer_bbox" not in question for question in payload.get("questions", ()))):
+            schema["$defs"]["question"]["required"].remove("answer_bbox")
     validate(instance=dict(payload), schema=schema)
