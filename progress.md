@@ -53,3 +53,4 @@
 - Packaged EXE build completed; installed smoke check exited `0`.
 - Pre-install database backup: `C:\Users\Home\AppData\Local\QingziLearningAssistant\backups\knowledge-before-ocr-grading-20260918-210553.sqlite3`.
 - Desktop shortcut continues to use `C:\Users\Home\Documents\QingziLearningAssistant\assets\qingzi-photo.ico`.
+- GitHub `main` received the exact verified source tree in commit `93504a49c3d526b160c6855f7b11a739aadaef0d`.

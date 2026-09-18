@@ -4,7 +4,7 @@
 为晴子学习助手增加未批改作业的多页同科 OCR 判题、原图批改影像、家长确认错题和确认后入库的完整流程。
 
 ## Current Phase
-Phase 5
+Complete
 
 ## Phases
 
@@ -35,8 +35,8 @@ Phase 5
 ### Phase 5: Verification & Delivery
 - [x] Run focused and full regression suites
 - [x] Build, install, preserve custom desktop icon, and smoke-test
-- [ ] Commit and push the exact source tree to GitHub main
-- **Status:** in_progress
+- [x] Commit and push the exact source tree to GitHub main
+- **Status:** complete
 
 ## Key Questions
 1. How does the current model schema represent OCR text, question status, and page identity?
