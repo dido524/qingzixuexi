@@ -1256,6 +1256,23 @@ def test_existing_analysis_button_prefers_grading_gallery(withdrawn_app, tmp_pat
     assert opened == [gallery]
 
 
+def test_analysis_button_opens_parent_review_before_printable_gallery(withdrawn_app, tmp_path):
+    app, opened = withdrawn_app
+    folder = tmp_path / "result"; folder.mkdir()
+    gallery = folder / "批改结果.html"; gallery.touch()
+    app.vm.completion = CompletionSummary(
+        saved_folder=folder, review_count=2, grading_gallery_path=gallery,
+    )
+
+    app._refresh()
+    assert app.buttons["details"].cget("text") == "本次分析 · 待确认"
+    app.buttons["details"].invoke()
+
+    assert app._review_dialog is not None
+    assert app.vm.review_dialog_id == app._review_dialog.dialog_id
+    assert opened == []
+
+
 def test_saved_folder_visible_immediately_after_capture_and_empty_actions_disabled(withdrawn_app, tmp_path):
     app, opened = withdrawn_app
     assert app.buttons["folder"].cget("state") == "disabled"

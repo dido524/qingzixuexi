@@ -1136,15 +1136,18 @@ class LearningAssistantApp:
             except Exception:pass
         elif data and resample_changed:self._render_preview()
         page_modal=self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None
+        pending_review=target.review_count > 0
         states={"capture":self.vm.can_capture and not page_modal,"retake":self.vm.can_retake and not page_modal,"next":self.vm.can_next and not page_modal,"finish":self.vm.can_finish and not page_modal,
                 "review":not page_modal and not self.vm.busy and not self.vm.worker_failed,
                 "retry":not page_modal and not self.vm.busy and not self.vm.worker_failed and self._selected_recovery() is not None,
                 "folder":bool(target.saved_folder and target.saved_folder.exists()),
-                "details":bool((target.grading_gallery_path and target.grading_gallery_path.exists())
-                               or (target.analysis_details_path and target.analysis_details_path.exists())),
+                "details":(not page_modal and not self.vm.busy and not self.vm.worker_failed) if pending_review else bool(
+                    (target.grading_gallery_path and target.grading_gallery_path.exists())
+                    or (target.analysis_details_path and target.analysis_details_path.exists())),
                 "dashboard":(self.config.knowledge_root/"知识库首页.html").exists(),
                 "learning":not page_modal and not self.vm.busy and not self.vm.worker_failed}
         self.buttons["capture"].configure(text="开始下一份" if self.vm.sealed else "拍下这一页")
+        self.buttons["details"].configure(text="本次分析 · 待确认" if pending_review else "本次分析")
         states["capture"]=(self.vm.can_capture or self.vm.can_start_new) and not page_modal
         for name,allowed in states.items(): self._style_button(self.buttons[name],allowed and not self._closing)
     def _selected_recovery(self):
@@ -1166,6 +1169,9 @@ class LearningAssistantApp:
         if path.exists():self._open_path(path)
     def open_details(self):
         target=self._selected_completion()
+        if target.review_count > 0:
+            self.open_reviews()
+            return
         path=target.grading_gallery_path or target.analysis_details_path
         if path and path.exists():self._open_path(path)
     def close(self):
