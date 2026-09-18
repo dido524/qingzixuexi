@@ -267,7 +267,21 @@ class WorkflowWorker(threading.Thread):
             ))
             return
         if command.kind == "preview_exam_blueprint":
-            blueprint = self._controller.preview_exam_blueprint(command.exam_request)
+            try:
+                blueprint = self._controller.preview_exam_blueprint(command.exam_request)
+            except ValueError as exc:
+                detail = str(exc)
+                if "考试范围" in detail:
+                    message = "当前考试范围没有可用的已确认题目，请调整范围或留空。"
+                elif "该学科" in detail or "有效学习证据" in detail:
+                    message = "该学科暂时没有可用于组卷的已确认学习记录。"
+                else:
+                    message = "暂时无法生成组卷依据，请检查条件后重试。"
+                self._emit(self._command_event(
+                    command, "exam_failed", exam_runs=self._controller.exam_history(),
+                    message=message,
+                ))
+                return
             self._emit(self._command_event(
                 command, "exam_blueprint", exam_runs=self._controller.exam_history(),
                 exam_blueprint=blueprint, message="组卷依据已生成，请确认后再生成题目。",

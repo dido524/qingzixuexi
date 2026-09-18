@@ -293,7 +293,11 @@ class LearningCenterDialog:
     def preview_exam(self) -> None:
         request = self.exam_form.build_request()
         if request is not None:
-            self.on_preview_exam(self.dialog_id, request)
+            if self.on_preview_exam(self.dialog_id, request):
+                self.exam_message.set("正在计算组卷依据，请稍候……")
+                self.set_busy(True)
+            else:
+                self.exam_message.set("当前还有任务正在处理，请稍候再试。")
 
     def generate_exam(self) -> None:
         request = self.exam_form.build_request()

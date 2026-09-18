@@ -97,6 +97,61 @@ def test_blueprint_preview_is_required_before_generation(tk_interpreter, tmp_pat
         dialog.destroy()
 
 
+def test_preview_blueprint_immediately_shows_progress_and_disables_actions(
+    tk_interpreter, tmp_path: Path
+) -> None:
+    from qingzi_learning.ui.learning_center import LearningCenterDialog
+
+    submitted = []
+    dialog = LearningCenterDialog(
+        tk_interpreter, "center", knowledge_root=tmp_path,
+        on_generate_report=lambda _id: None, on_open=lambda _path: None,
+        on_print=lambda _path: None, on_close=lambda _id: None,
+        on_preview_exam=lambda _id, request: submitted.append(request) or True,
+        on_generate_exam=lambda _id, _request: None,
+        on_approve_exam=lambda *_args: None,
+    )
+    try:
+        dialog.preview_exam()
+
+        assert submitted
+        assert "正在计算" in dialog.exam_message.get()
+        assert str(dialog.exam_buttons["preview"].cget("state")) == "disabled"
+    finally:
+        dialog.destroy()
+
+
+def test_preview_blueprint_rejected_by_worker_is_visible_in_exam_tab(tmp_path: Path) -> None:
+    config = AppConfig(tmp_path / "knowledge", ("语文", "数学", "英语"), 1, 2,
+                       tmp_path / "spool", tmp_path / "data")
+    request = ExamRequest("数学", "不存在的范围", 40, "适中", 5, False, False)
+
+    class Controller:
+        def __init__(self): self.repo = type("Repo", (), {"close": lambda self: None})()
+        def exam_history(self): return ()
+        def preview_exam_blueprint(self, _request):
+            raise ValueError("考试范围内还没有已确认的有效学习证据")
+
+    worker = WorkflowWorker(config, Controller, events=queue.Queue())
+    worker._controller = Controller()
+    operation = worker.submit(
+        "preview_exam_blueprint", context="learning_center", dialog_id="center",
+        exam_request=request,
+    )
+
+    worker._process(worker._commands.get_nowait())
+
+    event = worker.events.get_nowait()
+    assert event.kind == "exam_failed"
+    assert "考试范围" in event.message
+    view_model = CaptureViewModel()
+    view_model.learning_center_dialog_id = "center"
+    view_model.begin_work("正在计算", operation)
+    assert view_model.apply_event(event)
+    assert view_model.exam_message == event.message
+    assert not view_model.busy
+
+
 def test_generate_exam_immediately_shows_progress_and_disables_actions(
     tk_interpreter, tmp_path: Path
 ) -> None:
