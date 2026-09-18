@@ -31,7 +31,7 @@ from qingzi_learning.review.service import ReviewItem
 from qingzi_learning.ui.review_dialog import ReviewDialog
 from qingzi_learning.reporting.service import ReportArtifacts
 from qingzi_learning.exams.blueprint import ExamRequest
-from qingzi_learning.exams.service import ExamArtifacts
+from qingzi_learning.exams.service import ExamArtifacts, ExamGenerationError
 from qingzi_learning.storage.repository import ExamRun, ReportRun
 
 
@@ -274,7 +274,14 @@ class WorkflowWorker(threading.Thread):
             ))
             return
         if command.kind == "generate_exam":
-            self._controller.generate_exam(command.exam_request)
+            try:
+                self._controller.generate_exam(command.exam_request)
+            except ExamGenerationError:
+                self._emit(self._command_event(
+                    command, "exam_failed", exam_runs=self._controller.exam_history(),
+                    message="这次题目未通过质量校验，请点击“生成模拟卷”再试一次。",
+                ))
+                return
             self._emit(self._command_event(
                 command, "exam_generated", exam_runs=self._controller.exam_history(),
                 message="模拟卷已通过校验，请家长预览答案后确认发布。",
@@ -519,7 +526,7 @@ class CaptureViewModel:
         # Operation ownership outlives a deferred window. Its durable completion
         # refreshes recovery and releases only its own busy operation; visible
         # dialog mutation still requires the current dialog identity.
-        learning_events = {"report_list", "report_generated", "exam_list", "exam_blueprint", "exam_generated", "exam_approved", "worker_error"}
+        learning_events = {"report_list", "report_generated", "exam_list", "exam_blueprint", "exam_generated", "exam_approved", "exam_failed", "worker_error"}
         if event.context == "learning_center" and event.kind in learning_events:
             if event.operation_id != self.active_operation_id:
                 return False
@@ -534,7 +541,7 @@ class CaptureViewModel:
                 self.status = event.message or "报告记录已更新。"
                 if event.exam_runs:
                     self.exam_runs = event.exam_runs
-            elif event.kind in {"exam_list", "exam_blueprint", "exam_generated", "exam_approved"}:
+            elif event.kind in {"exam_list", "exam_blueprint", "exam_generated", "exam_approved", "exam_failed"}:
                 self.exam_runs = event.exam_runs
                 self.exam_blueprint = event.exam_blueprint
                 self.exam_artifacts = event.exam_artifacts
@@ -911,7 +918,7 @@ class LearningAssistantApp:
                 elif accepted and event.kind == "worker_error" and event.dialog_id == self.vm.review_dialog_id and self._review_dialog is not None:
                     self._review_dialog.show(self.vm.review_items, event.message)
                 if (accepted and event.context == "learning_center"
-                        and event.kind in {"report_list", "report_generated", "exam_list", "exam_blueprint", "exam_generated", "exam_approved", "worker_error"}
+                        and event.kind in {"report_list", "report_generated", "exam_list", "exam_blueprint", "exam_generated", "exam_approved", "exam_failed", "worker_error"}
                         and self._learning_center is not None):
                     self._learning_center.show(
                         self.vm.report_runs, self.vm.report_message, self.vm.report_artifacts

@@ -17,6 +17,34 @@ class ExamValidationError(ValueError):
     pass
 
 
+def _answer_search_prompt(item: dict[str, Any], prompt: str) -> str:
+    """Exclude a displayed choice list from answer-leak detection.
+
+    A blank question must display its candidate answers to be answerable.  The
+    surrounding question text is still checked, so an answer repeated as a
+    hint outside the option block remains a validation failure.
+    """
+    if item["question_type"] not in {"objective", "fill_blank"}:
+        return prompt
+    if not re.search(r"_{2,}|（\s*）|\(\s*\)", prompt):
+        return prompt
+    return re.sub(r"[（(][^（）()]{1,480}[）)]", "", prompt)
+
+
+def _explicitly_reveals_answer(
+    item: dict[str, Any], prompt: str, answer: str
+) -> bool:
+    searched = re.sub(r"\s+", "", _answer_search_prompt(item, prompt.casefold()))
+    normalized_answer = re.sub(r"\s+", "", answer.casefold())
+    if len(normalized_answer) < 2:
+        return False
+    markers = (
+        "结果是", "结果为", "正确答案是", "正确答案为", "正确选项是", "正确选项为",
+        "theansweris", "thecorrectansweris", "correctansweris",
+    )
+    return any(marker + normalized_answer in searched for marker in markers)
+
+
 def validate_exam(
     request: ExamRequest, blueprint: dict[str, Any], generation: dict[str, Any]
 ) -> tuple[ExamQuestion, ...]:
@@ -68,9 +96,7 @@ def validate_exam(
         if any(token.casefold() in prompt_folded for token in unsafe):
             raise ExamValidationError("模拟题题干包含答案或不安全内容")
         answer = item["answer"].strip()
-        answer_normalized = re.sub(r"\s+", "", answer.casefold())
-        prompt_normalized = re.sub(r"\s+", "", prompt_folded)
-        if len(answer_normalized) >= 2 and answer_normalized in prompt_normalized:
+        if _explicitly_reveals_answer(item, prompt, answer):
             raise ExamValidationError("模拟题题干泄露了答案")
         for key in ("answer", "explanation", "rubric"):
             value = item[key].strip()

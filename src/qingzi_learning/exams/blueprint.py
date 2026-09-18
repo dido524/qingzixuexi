@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from math import floor
+import re
 from typing import Any
 
 from qingzi_learning.reporting.profile import LearningProfileBuilder
@@ -60,7 +61,12 @@ class BlueprintBuilder:
             None, cutoff_at=datetime.now(timezone.utc)
         )
         subject_profile = profile["subjects"][request.subject]
-        points = subject_profile["knowledge_points"]
+        all_points = subject_profile["knowledge_points"]
+        points = {
+            name: facts for name, facts in all_points.items()
+            if self._subject_consistent(request.subject, name, facts)
+        }
+        quarantined_count = len(all_points) - len(points)
         selected = {
             name: facts for name, facts in points.items()
             if self._matches_scope(request.scope, name, facts)
@@ -108,6 +114,8 @@ class BlueprintBuilder:
         if absent:
             chinese = {"primary": "重点短板", "related": "关联巩固", "stable": "稳定保持"}
             note += "因%s证据不足，题量已自动补入现有类别。" % "、".join(chinese[name] for name in absent)
+        if quarantined_count:
+            note += f"已排除{quarantined_count}个疑似历史混科学习记录。"
         return {
             "schema_version": 1,
             "request": asdict(request),
@@ -139,6 +147,28 @@ class BlueprintBuilder:
             return True
         haystacks = [name, *(item["prompt_summary"] for item in facts["representative_questions"])]
         return any(needle in "".join(value.casefold().split()) for value in haystacks)
+
+    @staticmethod
+    def _subject_consistent(subject: str, name: str, facts: dict[str, Any]) -> bool:
+        """Quarantine only high-confidence English leakage in non-English history."""
+        if subject == "英语":
+            return True
+        grammar_markers = (
+            "英语", "语法", "单词", "句型", "时态", "将来时", "现在时", "过去时",
+            "动词", "名词", "形容词", "副词", "介词", "连词", "情态",
+        )
+        name_words = re.findall(r"[A-Za-z]{2,}", name)
+        if len(name_words) >= 2:
+            return False
+        if name_words and any(marker in name for marker in grammar_markers):
+            return False
+        for item in facts.get("representative_questions", []):
+            prompt_words = re.findall(
+                r"\b[A-Za-z]{2,}\b", str(item.get("prompt_summary", ""))
+            )
+            if len(prompt_words) >= 3:
+                return False
+        return True
 
     def _related_points(
         self, primary_names: set[str], selected: dict[str, dict[str, Any]]

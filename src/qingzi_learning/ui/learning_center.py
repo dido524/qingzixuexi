@@ -302,7 +302,9 @@ class LearningCenterDialog:
         if self.exam_blueprint is None or request != self.blueprint_request:
             self.exam_message.set("条件已变化，请重新预览组卷依据。")
             return
-        self.on_generate_exam(self.dialog_id, request)
+        if self.on_generate_exam(self.dialog_id, request):
+            self.exam_message.set("正在生成并校验模拟卷，请稍候……")
+            self.set_busy(True)
 
     def approve_exam(self) -> None:
         if self.selected_exam is not None and self.selected_exam.status == "needs_parent_approval":

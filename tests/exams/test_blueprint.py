@@ -109,6 +109,26 @@ def test_blueprint_rejects_a_scope_without_confirmed_evidence(repo: KnowledgeRep
         )
 
 
+def test_math_blueprint_quarantines_obvious_english_evidence_from_legacy_mixed_batch(
+    repo: KnowledgeRepository,
+) -> None:
+    """A legacy document label cannot turn English grammar into a math target."""
+    from qingzi_learning.exams.blueprint import BlueprintBuilder, ExamRequest
+
+    _save(repo, "math", Subject.MATH, "小数加减法", QuestionStatus.INCORRECT, 0.99)
+    _save(
+        repo, "legacy-mixed", Subject.MATH, "否定句中的并列连词or",
+        QuestionStatus.INCORRECT, 0.99,
+    )
+
+    plan = BlueprintBuilder(repo).build(
+        ExamRequest("数学", "", 40, "适中", 5, False, False)
+    )
+
+    assert {target["knowledge_point"] for target in plan["targets"]} == {"小数加减法"}
+    assert {slot["knowledge_point"] for slot in plan["slots"]} == {"小数加减法"}
+
+
 def _save(
     repo: KnowledgeRepository,
     document_id: str,

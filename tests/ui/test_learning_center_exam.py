@@ -5,7 +5,7 @@ from qingzi_learning.config import AppConfig
 from qingzi_learning.exams.blueprint import ExamRequest
 from qingzi_learning.exams.service import ExamArtifacts
 from qingzi_learning.storage.repository import ExamRun
-from qingzi_learning.ui.app import WorkflowWorker
+from qingzi_learning.ui.app import CaptureViewModel, WorkflowWorker
 
 
 def _exam(status="needs_parent_approval") -> ExamRun:
@@ -95,6 +95,65 @@ def test_blueprint_preview_is_required_before_generation(tk_interpreter, tmp_pat
         assert str(dialog.exam_buttons["generate"].cget("state")) == "normal"
     finally:
         dialog.destroy()
+
+
+def test_generate_exam_immediately_shows_progress_and_disables_actions(
+    tk_interpreter, tmp_path: Path
+) -> None:
+    from qingzi_learning.ui.learning_center import LearningCenterDialog
+
+    submitted = []
+    dialog = LearningCenterDialog(
+        tk_interpreter, "center", knowledge_root=tmp_path,
+        on_generate_report=lambda _id: None, on_open=lambda _path: None,
+        on_print=lambda _path: None, on_close=lambda _id: None,
+        on_preview_exam=lambda _id, _request: None,
+        on_generate_exam=lambda _id, request: submitted.append(request) or True,
+        on_approve_exam=lambda *_args: None,
+    )
+    try:
+        dialog.show_exams((), "蓝图已生成。", {"allocation": {}, "targets": []}, None)
+
+        dialog.generate_exam()
+
+        assert submitted
+        assert "正在生成" in dialog.exam_message.get()
+        assert str(dialog.exam_buttons["generate"].cget("state")) == "disabled"
+    finally:
+        dialog.destroy()
+
+
+def test_exam_validation_failure_is_visible_in_exam_tab(tmp_path: Path) -> None:
+    from qingzi_learning.exams.service import ExamGenerationError
+
+    config = AppConfig(tmp_path / "knowledge", ("语文", "数学", "英语"), 1, 2,
+                       tmp_path / "spool", tmp_path / "data")
+    request = ExamRequest("数学", "分数", 40, "适中", 5, False, False)
+
+    class Controller:
+        def __init__(self): self.repo = type("Repo", (), {"close": lambda self: None})()
+        def exam_history(self): return (_exam("failed"),)
+        def generate_exam(self, _request): raise ExamGenerationError("exam_validation_failed")
+
+    worker = WorkflowWorker(config, Controller, events=queue.Queue())
+    worker._controller = Controller()
+    operation = worker.submit(
+        "generate_exam", context="learning_center", dialog_id="center", exam_request=request
+    )
+
+    worker._process(worker._commands.get_nowait())
+
+    event = worker.events.get_nowait()
+    assert event.kind == "exam_failed"
+    assert event.exam_runs[0].status == "failed"
+    assert "未通过" in event.message and "校验" in event.message
+
+    view_model = CaptureViewModel()
+    view_model.learning_center_dialog_id = "center"
+    view_model.begin_work("正在生成", operation)
+    assert view_model.apply_event(event)
+    assert view_model.exam_message == event.message
+    assert not view_model.busy
 
 
 def test_worker_routes_exam_preview_generation_approval_and_history(tmp_path: Path) -> None:
