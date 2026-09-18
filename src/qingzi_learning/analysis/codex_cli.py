@@ -40,6 +40,12 @@ class ProcessRunner(Protocol):
 
 class SubprocessRunner:
     def run(self, args: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        # A GUI application must never expose the console created by a child
+        # command.  Centralising this flag covers analysis, reports, exam
+        # generation and independent exam verification alike.
+        no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if no_window:
+            kwargs["creationflags"] = kwargs.get("creationflags", 0) | no_window
         return subprocess.run(args, **kwargs)
 
 

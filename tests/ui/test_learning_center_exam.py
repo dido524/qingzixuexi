@@ -178,6 +178,39 @@ def test_generate_exam_immediately_shows_progress_and_disables_actions(
         dialog.destroy()
 
 
+def test_completed_generation_selects_the_new_exam_instead_of_an_old_failure(
+    tk_interpreter, tmp_path: Path
+) -> None:
+    from qingzi_learning.ui.learning_center import LearningCenterDialog
+
+    old_failure = _exam("failed")
+    new_exam = _exam("needs_parent_approval")
+    new_exam = new_exam.__class__(
+        **{**new_exam.__dict__, "exam_id": "QZ-NEW", "created_at": "2026-09-18 09:15:23"}
+    )
+    dialog = LearningCenterDialog(
+        tk_interpreter, "center", knowledge_root=tmp_path,
+        on_generate_report=lambda _id: None, on_open=lambda _path: None,
+        on_print=lambda _path: None, on_close=lambda _id: None,
+        on_preview_exam=lambda _id, _request: None,
+        on_generate_exam=lambda _id, _request: None,
+        on_approve_exam=lambda *_args: None,
+    )
+    try:
+        dialog.show_exams((old_failure,), "旧记录", None, None)
+        assert dialog.selected_exam.exam_id == "QZ-TEST"
+
+        dialog.show_exams(
+            (new_exam, old_failure), "模拟卷已通过校验。", None, None,
+            selected_exam_id="QZ-NEW",
+        )
+
+        assert dialog.selected_exam.exam_id == "QZ-NEW"
+        assert "needs_parent_approval" in dialog.exam_preview.get("1.0", "end")
+    finally:
+        dialog.destroy()
+
+
 def test_exam_validation_failure_is_visible_in_exam_tab(tmp_path: Path) -> None:
     from qingzi_learning.exams.service import ExamGenerationError
 
@@ -240,4 +273,7 @@ def test_worker_routes_exam_preview_generation_approval_and_history(tmp_path: Pa
     ):
         worker.submit(kind, context="learning_center", dialog_id="center", **kwargs)
         worker._process(worker._commands.get_nowait())
-        assert worker.events.get_nowait().kind == expected_event
+        event = worker.events.get_nowait()
+        assert event.kind == expected_event
+        if expected_event == "exam_generated":
+            assert event.target_id == "QZ-TEST"

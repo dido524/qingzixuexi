@@ -261,8 +261,8 @@ class LearningCenterDialog:
             self.buttons[name].configure(state="normal" if completed and not busy else "disabled")
         self._refresh_exam_buttons(busy)
 
-    def show_exams(self, runs, message: str, blueprint, artifacts) -> None:
-        selected_id = getattr(self.selected_exam, "exam_id", None)
+    def show_exams(self, runs, message: str, blueprint, artifacts, *, selected_exam_id: str | None = None) -> None:
+        selected_id = selected_exam_id or getattr(self.selected_exam, "exam_id", None)
         self.exam_runs = tuple(runs)
         self.exam_history.delete(0, "end")
         labels = {"draft": "草稿", "needs_parent_approval": "待家长确认", "approved": "已批准", "failed": "失败"}

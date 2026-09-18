@@ -26,6 +26,7 @@ from qingzi_learning.workflow.controller import WorkflowOutcome
 from qingzi_learning.ui.camera_process import CameraProcess
 from qingzi_learning.ui.page_subject_dialog import PageSubjectDialog
 from qingzi_learning.ui.learning_center import LearningCenterDialog
+from qingzi_learning.ui.model_progress import ModelProgressDialog
 from qingzi_learning.ui.taskbar import TaskbarNotifier
 from qingzi_learning.review.service import ReviewItem
 from qingzi_learning.ui.review_dialog import ReviewDialog
@@ -215,13 +216,14 @@ class WorkflowWorker(threading.Thread):
 
     def _command_event(self, command, kind, **values):
         values.setdefault("context", command.context)
+        target_id = values.pop("target_id", command.job_id)
         identity=command.session_id
         if identity is None and command.context == "active_capture": identity=self._session_id
         outcome = values.get("outcome")
         revision = getattr(self._controller.repo, "review_publication_revision", None)
         if outcome is not None and callable(revision):
             values["review_revision"] = revision(outcome.job_id)
-        return UiEvent(kind, command.operation_id, target_id=command.job_id,
+        return UiEvent(kind, command.operation_id, target_id=target_id,
                        session_generation=command.session_generation,
                        session_id=identity, dialog_id=command.dialog_id, **values)
 
@@ -289,7 +291,7 @@ class WorkflowWorker(threading.Thread):
             return
         if command.kind == "generate_exam":
             try:
-                self._controller.generate_exam(command.exam_request)
+                generated = self._controller.generate_exam(command.exam_request)
             except ExamGenerationError:
                 self._emit(self._command_event(
                     command, "exam_failed", exam_runs=self._controller.exam_history(),
@@ -298,6 +300,7 @@ class WorkflowWorker(threading.Thread):
                 return
             self._emit(self._command_event(
                 command, "exam_generated", exam_runs=self._controller.exam_history(),
+                target_id=generated.exam_id,
                 message="模拟卷已通过校验，请家长预览答案后确认发布。",
             ))
             return
@@ -685,6 +688,7 @@ def _window_dimensions(screen_width,screen_height):
 class LearningAssistantApp:
     def __init__(self,root,config,worker,*,open_path=None,print_path=None,taskbar_notifier=None):
         self.root,self.config,self.worker=root,config,worker; self.vm=CaptureViewModel(); self._open_path=open_path or _open_local_path; self._print_path=print_path or _print_local_path; self._closing=False; self._dialogs={}; self._dialog_context={}; self._poll_after_id=None; self._destroyed=False; self._review_dialog=None; self._learning_center=None; self._page_subject_dialog=None; self._page_subject_context=None
+        self._model_progress=None; self._model_progress_operation_id=None
         self._taskbar_notifier=taskbar_notifier or TaskbarNotifier(); self._page_subject_flash_latches=set(); self._active_taskbar_flash_handle=None
         self._preview_source_data=None; self._preview_source_image=None; self._preview_render_size=None; self._preview_resize_after_id=None; self._preview_resample=Image.Resampling.BILINEAR
         self._build(); self._bind_taskbar_focus(self.root); self._refresh(); root.protocol("WM_DELETE_WINDOW",self.close); worker.start(); self._schedule_poll()
@@ -799,8 +803,27 @@ class LearningAssistantApp:
         if self._closing or self.vm.busy or not allowed:return False
         kw.setdefault("session_generation", uuid4().hex if kind in {"resume_capture","new_capture"} else self.vm.session_generation)
         kw.setdefault("session_id", Path(kw["job_id"]).name if kind == "resume_capture" else None if kind == "new_capture" else self.vm.session_id)
-        op=self.worker.submit(kind,**kw); self.vm.begin_work(message,op); self._refresh()
+        op=self.worker.submit(kind,**kw); self.vm.begin_work(message,op)
+        if kind in {"finish", "retry", "generate_report", "generate_exam"}:
+            self._start_model_progress(kind, op)
+        self._refresh()
         return True
+
+    def _start_model_progress(self, kind, operation_id):
+        self._finish_model_progress(self._model_progress_operation_id, force=True)
+        host = (self._learning_center.window if self._learning_center is not None
+                and kind in {"generate_report", "generate_exam"} else self.root)
+        self._model_progress = ModelProgressDialog(host, kind)
+        self._model_progress_operation_id = operation_id
+
+    def _finish_model_progress(self, operation_id, *, force=False):
+        active_operation = getattr(self, "_model_progress_operation_id", None)
+        if not force and operation_id != active_operation:
+            return
+        dialog, self._model_progress = getattr(self, "_model_progress", None), None
+        self._model_progress_operation_id = None
+        if dialog is not None:
+            dialog.close()
     def capture(self):
         if self.vm.can_start_new:self._submit("new_capture","正在准备下一份…",True)
         else:self._submit("capture","正在拍摄…",self.vm.can_capture)
@@ -925,7 +948,11 @@ class LearningAssistantApp:
             while True:
                 try:event=source.get_nowait()
                 except queue.Empty:break
-                if event.kind=="shutdown_ack": self._destroy(); return
+                if event.kind=="shutdown_ack": self._finish_model_progress(None, force=True); self._destroy(); return
+                progress_operation = getattr(self, "_model_progress_operation_id", None)
+                if (progress_operation is not None and event.operation_id == progress_operation
+                        and event.kind != "preview"):
+                    self._finish_model_progress(event.operation_id)
                 accepted=self.vm.apply_event(event)
                 if accepted and event.kind in {"review_list", "review_saved", "review_conflict"} and self._review_dialog is not None:
                     self._review_dialog.show(self.vm.review_items, self.vm.review_message)
@@ -940,6 +967,7 @@ class LearningAssistantApp:
                     self._learning_center.show_exams(
                         self.vm.exam_runs, self.vm.exam_message,
                         self.vm.exam_blueprint, self.vm.exam_artifacts,
+                        selected_exam_id=event.target_id,
                     )
                 if accepted:
                     if event.kind=="workflow_outcome" and event.operation_id and event.outcome and self.vm.page_subject_dialog_needed:
@@ -1143,6 +1171,7 @@ class LearningAssistantApp:
         else: self._schedule_poll()
     def _destroy(self):
         self._destroyed=True
+        self._finish_model_progress(None, force=True)
         self._stop_taskbar_flash()
         self._close_page_subject_dialog()
         if self._review_dialog is not None:

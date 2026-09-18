@@ -29,6 +29,25 @@ def validate_result(result, document):
     )
 
 
+def test_subprocess_runner_hides_the_windows_console(monkeypatch):
+    module = importlib.import_module("qingzi_learning.analysis.codex_cli")
+    seen = {}
+
+    def run(args, **kwargs):
+        seen.update(kwargs)
+        return module.subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+
+    module.SubprocessRunner().run(
+        ["codex.exe", "exec"], input="prompt", text=True,
+        capture_output=True, timeout=10, shell=False, encoding="utf-8",
+    )
+
+    assert seen["creationflags"] & 0x08000000
+
+
 def test_codex_command_is_read_only_and_uses_argument_list(runner, document):
     result = adapter(runner).analyze(document)
     args = runner.last_args
