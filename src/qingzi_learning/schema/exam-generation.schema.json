@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "instructions", "questions"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 120},
+    "instructions": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "questions": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question_id", "question_type", "points", "knowledge_points", "blueprint_category", "prompt", "answer", "explanation", "rubric"],
+        "properties": {
+          "question_id": {"type": "string", "pattern": "^Q[0-9]{2}$"},
+          "question_type": {"type": "string", "enum": ["objective", "fill_blank", "calculation", "application", "reading_open", "composition", "translation", "short_answer", "other"]},
+          "points": {"type": "integer", "minimum": 1, "maximum": 100},
+          "knowledge_points": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 80}},
+          "blueprint_category": {"type": "string", "enum": ["primary", "related", "stable"]},
+          "prompt": {"type": "string", "minLength": 1, "maxLength": 4000},
+          "answer": {"type": "string", "minLength": 1, "maxLength": 4000},
+          "explanation": {"type": "string", "minLength": 1, "maxLength": 6000},
+          "rubric": {"type": "string", "minLength": 1, "maxLength": 3000}
+        }
+      }
+    }
+  }
+}

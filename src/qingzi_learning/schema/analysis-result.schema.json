@@ -8,6 +8,7 @@
     "subject",
     "subject_confidence",
     "document_type",
+    "source_exam_id",
     "grading_mode",
     "teacher_mark_evidence",
     "page_subjects",
@@ -19,6 +20,7 @@
     "subject": {"enum": ["语文", "数学", "英语"]},
     "subject_confidence": {"type": "number", "minimum": 0, "maximum": 1},
     "document_type": {"type": "string", "minLength": 1},
+    "source_exam_id": {"type": ["string", "null"], "pattern": "^QZ-[A-Z0-9-]+$"},
     "grading_mode": {"enum": ["teacher_marked", "auto_grade", "mixed"]},
     "teacher_mark_evidence": {
       "type": "array",
@@ -80,6 +82,7 @@
       "additionalProperties": false,
       "required": [
         "question_id",
+        "source_exam_question_id",
         "question_type",
         "page",
         "prompt_summary",
@@ -94,6 +97,7 @@
       ],
       "properties": {
         "question_id": {"type": "string", "minLength": 1},
+        "source_exam_question_id": {"type": ["string", "null"], "pattern": "^Q[0-9]{2}$"},
         "question_type": {"enum": ["objective", "fill_blank", "calculation", "application", "reading_open", "composition", "translation", "short_answer", "other"]},
         "page": {"type": "integer", "minimum": 1},
         "prompt_summary": {"type": "string"},

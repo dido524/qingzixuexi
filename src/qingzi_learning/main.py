@@ -130,7 +130,11 @@ def _camera_smoke_check(report_path: Path, preview_path: Path | None = None) -> 
 
 def _smoke_check() -> int:
     """Bounded diagnostic used by the delivery script, with no hardware I/O."""
-    required = ("analysis-result.schema.json", "analysis-transport.schema.json")
+    required = (
+        "analysis-result.schema.json",
+        "analysis-transport.schema.json",
+        "report-narrative.schema.json",
+    )
     schema_dir = files("qingzi_learning.schema")
     missing = [name for name in required if not (schema_dir / name).is_file()]
     if missing:

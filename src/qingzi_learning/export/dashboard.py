@@ -30,7 +30,17 @@ class DashboardExporter:
             self.markdown.export_subject(subject)
         snapshot = self.repo.dashboard_snapshot()
         destination = self.paths.safe_root_file("知识库首页.html")
-        self._atomic_write(destination, self._render(snapshot))
+        latest = self.repo.latest_completed_report()
+        latest_path = self.paths.latest_report_path()
+        approved = self.repo.list_exam_runs(status="approved")
+        self._atomic_write(
+            destination,
+            self._render(
+                snapshot,
+                latest_path if latest is not None and latest_path.is_file() else None,
+                approved[0] if approved else None,
+            ),
+        )
         return destination
 
     def expected_paths(self) -> set[Path]:
@@ -39,7 +49,12 @@ class DashboardExporter:
             paths.update(self.markdown.expected_paths(subject))
         return paths
 
-    def _render(self, snapshot: dict[str, Any]) -> str:
+    def _render(
+        self,
+        snapshot: dict[str, Any],
+        latest_report: Path | None = None,
+        latest_exam=None,
+    ) -> str:
         summary = snapshot["summary"]
         period = snapshot["period"]
         monthly = snapshot["monthly_period"]
@@ -52,6 +67,11 @@ class DashboardExporter:
         )
         subjects = "".join(self._subject_row(subject, data) for subject, data in snapshot["subjects"].items())
         embedded = self._safe_json(snapshot)
+        report_entry = (
+            f'<p><a href="{html.escape(self._href(latest_report), quote=True)}">查看最新学情报告</a></p>'
+            if latest_report is not None else '<p class="future">尚未生成学情报告，请从桌面程序的“学习与复习”进入。</p>'
+        )
+        exam_entry = self._exam_entry(latest_exam)
         return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>晴子学习知识库</title><style>
@@ -63,13 +83,15 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
 .weak-subjects {{ display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px; }} .weak-subject {{ min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:#f9fbfd; }} .weak-subject h3 {{ margin:0 0 10px;font-size:17px;color:var(--accent); }} .weak-subject .empty {{ margin:0;color:var(--muted); }}
 @media (max-width:1050px) {{ .weak-subjects {{ grid-template-columns:1fr; }} }} @media (max-width:850px) {{ aside {{ position:static;width:auto; }} main {{ margin:0;padding:20px; }} .cards {{ grid-template-columns:1fr; }} }}
 </style></head><body>
-<aside><h1>晴子学习知识库</h1><nav><a href="#概览">学习总览</a>{self._subject_nav()}<a href="#错题本">错题本</a><a href="#知识点地图">知识点地图</a><a href="#待确认">待家长确认</a><a href="#最近更新">历次作业与试卷</a></nav></aside>
+<aside><h1>晴子学习知识库</h1><nav><a href="#概览">学习总览</a>{self._subject_nav()}<a href="#错题本">错题本</a><a href="#知识点地图">知识点地图</a><a href="#学习报告">学情报告</a><a href="#模拟试卷">模拟试卷</a><a href="#待确认">待家长确认</a><a href="#最近更新">历次作业与试卷</a></nav></aside>
 <main><section id="概览"><h2>学习总览</h2><p class="subtitle">累计统计：{html.escape(str(period['label']))}，题目样本 {period['sample_size']}；本月统计：{html.escape(str(monthly['label']))}，收录资料样本 {monthly['sample_size']}。</p><div class="cards">{cards}</div></section>
 <section id="学科概况"><h2>三科概况</h2><table><thead><tr><th>科目</th><th>资料</th><th>题目样本</th><th>累计掌握度</th><th>近期趋势</th></tr></thead><tbody>{subjects}</tbody></table></section>
 <section id="知识点地图" class="panel"><h2>知识点地图 · 重点短板</h2>{self._weak_points(snapshot['weak_knowledge_points'])}</section>
 <section id="最近更新" class="panel"><h2>最近更新</h2>{self._recent_documents(snapshot['recent_documents'], snapshot['recent_documents_truncated'])}</section>
 <section id="错题本" class="panel"><h2>错题本</h2>{self._error_bank(snapshot['error_bank'], snapshot['error_bank_truncated'])}</section>
-<section id="待确认" class="panel"><h2>待确认入口</h2>{self._pending(snapshot['pending_questions'], snapshot['pending_questions_truncated'])}<p class="future">待确认题目请在“晴子学习助手”桌面程序中复核；本网页仅供只读查看。</p><p class="future">生成考前复习包（后续功能）</p><p class="future">发起掌握度检验（后续功能）</p></section>
+<section id="学习报告" class="panel"><h2>学情报告</h2>{report_entry}</section>
+<section id="模拟试卷" class="panel"><h2>针对性模拟试卷</h2>{exam_entry}<p class="future">新试卷请从桌面程序的“学习与复习”生成并由家长确认；这里只展示已批准版本。</p></section>
+<section id="待确认" class="panel"><h2>待确认入口</h2>{self._pending(snapshot['pending_questions'], snapshot['pending_questions_truncated'])}<p class="future">待确认题目请在“晴子学习助手”桌面程序中复核；本网页仅供只读查看。</p></section>
 <footer class="meta">此页面离线可用；原始资料、SQLite/JSON 为事实层，页面可随时重新生成。</footer></main>
 <script>const dashboardSnapshot = {embedded};</script></body></html>"""
 
@@ -77,6 +99,35 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
         return "".join(
             f'<a href="{self._href(self.paths.safe_file_path(subject, "知识点", "科目总览.md"))}">{html.escape(subject)}</a>'
             for subject in self.repo.config.subjects
+        )
+
+    def _exam_entry(self, run) -> str:
+        if run is None:
+            return '<p class="future">尚无已批准模拟卷。</p>'
+        labels = {
+            "student": "学生试卷",
+            "answer_sheet": "答题纸",
+            "solutions": "答案与解析",
+            "blueprint": "组卷说明",
+        }
+        links = []
+        root = self.paths.knowledge_root.resolve()
+        for key, label in labels.items():
+            relative = run.output_files.get(key)
+            if not relative:
+                continue
+            candidate = (root / relative).resolve()
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                continue
+            if candidate.is_file():
+                links.append(self._link(label, candidate))
+        if not links:
+            return '<p class="future">已批准模拟卷的文件暂不可用。</p>'
+        return (
+            f'<p><strong>{html.escape(run.exam_id)}</strong> · {html.escape(run.subject)}</p>'
+            '<p>' + "　".join(links) + "</p>"
         )
 
     def _subject_row(self, subject: str, data: dict[str, Any]) -> str:

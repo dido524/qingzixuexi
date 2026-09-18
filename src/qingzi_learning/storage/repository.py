@@ -67,6 +67,62 @@ class KnowledgeStats:
         return (self.correct_count + self.partial_count * 0.5) / self.exposure_count
 
 
+@dataclass(frozen=True)
+class ReportRun:
+    """One durable report snapshot; completed rows are never rewritten."""
+
+    report_id: str
+    status: str
+    previous_report_id: str | None
+    evidence_cutoff_at: str
+    snapshot: dict[str, Any]
+    narrative: dict[str, Any]
+    output_files: dict[str, str]
+    error_code: str | None
+    created_at: str
+    completed_at: str | None
+
+
+@dataclass(frozen=True)
+class ExamRun:
+    exam_id: str
+    status: str
+    subject: str
+    request: dict[str, Any]
+    blueprint: dict[str, Any]
+    generation: dict[str, Any]
+    verification: dict[str, Any]
+    output_files: dict[str, str]
+    error_code: str | None
+    revision: int
+    created_at: str
+    approved_at: str | None
+
+
+@dataclass(frozen=True)
+class ExamQuestion:
+    exam_id: str
+    question_id: str
+    question_type: str
+    points: int
+    knowledge_points: tuple[str, ...]
+    blueprint_category: str
+    prompt: str
+    answer: str
+    explanation: str
+    rubric: str
+
+
+@dataclass(frozen=True)
+class ExamAttempt:
+    exam_id: str
+    exam_question_id: str
+    document_id: str
+    document_question_id: str
+    status: str
+    linked_at: str
+
+
 class KnowledgeRepository:
     """The durable fact layer; each analysis save replaces one document atomically."""
 
@@ -83,6 +139,515 @@ class KnowledgeRepository:
 
     def close(self) -> None:
         self.connection.close()
+
+    def create_report_run(
+        self,
+        report_id: str,
+        previous_report_id: str | None,
+        evidence_cutoff_at: str,
+        snapshot: dict[str, Any],
+    ) -> ReportRun:
+        if not report_id or not evidence_cutoff_at or not isinstance(snapshot, dict):
+            raise ValueError("报告参数不完整")
+        if previous_report_id is not None:
+            previous = self.get_report_run(previous_report_id)
+            if previous is None or previous.status != "completed":
+                raise ValueError("上一份报告不存在或尚未完成")
+        try:
+            with self.connection:
+                self.connection.execute(
+                    """INSERT INTO report_runs(
+                        report_id, status, previous_report_id, evidence_cutoff_at, snapshot_json
+                    ) VALUES (?, 'generating', ?, ?, ?)""",
+                    (report_id, previous_report_id, evidence_cutoff_at, self._json(snapshot)),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("报告编号已存在") from exc
+        return self._require_report_run(report_id)
+
+    def complete_report_run(
+        self,
+        report_id: str,
+        narrative: dict[str, Any],
+        output_files: dict[str, str],
+    ) -> ReportRun:
+        if not isinstance(narrative, dict) or not isinstance(output_files, dict):
+            raise ValueError("报告输出格式无效")
+        current = self._require_report_run(report_id)
+        if current.status == "completed":
+            raise ValueError("报告已完成，不能再次发布")
+        if current.status == "failed":
+            raise ValueError("报告已失败，不能发布")
+        with self.connection:
+            changed = self.connection.execute(
+                """UPDATE report_runs
+                   SET status='completed', narrative_json=?, output_files_json=?,
+                       error_code=NULL, completed_at=CURRENT_TIMESTAMP
+                   WHERE report_id=? AND status='generating'""",
+                (self._json(narrative), self._json(output_files), report_id),
+            ).rowcount
+        if changed != 1:
+            raise ValueError("报告状态已变化")
+        return self._require_report_run(report_id)
+
+    def fail_report_run(self, report_id: str, error_code: str) -> ReportRun:
+        if not error_code:
+            raise ValueError("报告失败代码不能为空")
+        current = self._require_report_run(report_id)
+        if current.status == "completed":
+            raise ValueError("报告已完成，不能标记失败")
+        if current.status == "failed":
+            return current
+        with self.connection:
+            changed = self.connection.execute(
+                """UPDATE report_runs
+                   SET status='failed', error_code=?, completed_at=CURRENT_TIMESTAMP
+                   WHERE report_id=? AND status='generating'""",
+                (error_code, report_id),
+            ).rowcount
+        if changed != 1:
+            raise ValueError("报告状态已变化")
+        return self._require_report_run(report_id)
+
+    def get_report_run(self, report_id: str) -> ReportRun | None:
+        row = self.connection.execute(
+            "SELECT * FROM report_runs WHERE report_id=?", (report_id,)
+        ).fetchone()
+        return None if row is None else self._report_run(row)
+
+    def latest_completed_report(self) -> ReportRun | None:
+        row = self.connection.execute(
+            """SELECT * FROM report_runs WHERE status='completed'
+               ORDER BY completed_at DESC, rowid DESC LIMIT 1"""
+        ).fetchone()
+        return None if row is None else self._report_run(row)
+
+    def list_report_runs(self) -> tuple[ReportRun, ...]:
+        rows = self.connection.execute(
+            "SELECT * FROM report_runs ORDER BY created_at DESC, rowid DESC"
+        ).fetchall()
+        return tuple(self._report_run(row) for row in rows)
+
+    def report_evidence_rows(self, cutoff_at: str) -> dict[str, Any]:
+        """Return bounded, read-only facts used by deterministic report snapshots."""
+        rows = self.connection.execute(
+            """SELECT documents.document_id, documents.subject, documents.created_at,
+                      effective_questions.question_id, effective_questions.status,
+                      effective_questions.prompt_summary,
+                      effective_questions.error_categories_json,
+                      links.knowledge_point
+               FROM effective_questions
+               JOIN documents ON documents.document_id=effective_questions.document_id
+               LEFT JOIN question_knowledge_points AS links
+                 ON links.document_id=effective_questions.document_id
+                AND links.question_id=effective_questions.question_id
+               WHERE datetime(documents.created_at) <= datetime(?)
+                 AND effective_questions.status != 'needs_review'
+                 AND (effective_questions.decision_source='parent'
+                      OR effective_questions.confidence >= 0.80)
+               ORDER BY documents.created_at, documents.document_id,
+                        effective_questions.question_id, links.knowledge_point""",
+            (cutoff_at,),
+        ).fetchall()
+        effective = []
+        for row in rows:
+            item = dict(row)
+            categories = json.loads(item.pop("error_categories_json"))
+            if not isinstance(categories, list) or not all(isinstance(value, str) for value in categories):
+                raise ValueError("题目错因记录已损坏")
+            item["error_categories"] = categories
+            effective.append(item)
+        pending_count = self.connection.execute(
+            """SELECT COUNT(*) FROM effective_questions
+               JOIN documents ON documents.document_id=effective_questions.document_id
+               WHERE datetime(documents.created_at) <= datetime(?)
+                 AND effective_questions.status='needs_review'""",
+            (cutoff_at,),
+        ).fetchone()[0]
+        excluded_low_confidence_count = self.connection.execute(
+            """SELECT COUNT(*) FROM effective_questions
+               JOIN documents ON documents.document_id=effective_questions.document_id
+               WHERE datetime(documents.created_at) <= datetime(?)
+                 AND effective_questions.status!='needs_review'
+                 AND effective_questions.decision_source!='parent'
+                 AND effective_questions.confidence < 0.80""",
+            (cutoff_at,),
+        ).fetchone()[0]
+        return {
+            "effective_rows": effective,
+            "pending_count": int(pending_count),
+            "excluded_low_confidence_count": int(excluded_low_confidence_count),
+            "knowledge_stats": self._knowledge_point_rows(),
+        }
+
+    def report_retest_rows(self, cutoff_at: str) -> list[dict[str, Any]]:
+        """Return approved, linked retest facts available at a report cutoff."""
+        rows = self.connection.execute(
+            """SELECT attempts.exam_id, attempts.exam_question_id,
+                      attempts.document_id, attempts.document_question_id,
+                      attempts.status AS current_status, attempts.linked_at,
+                      runs.subject, runs.blueprint_json,
+                      questions.knowledge_points_json
+               FROM exam_attempts AS attempts
+               JOIN exam_runs AS runs ON runs.exam_id=attempts.exam_id
+               JOIN exam_questions AS questions
+                 ON questions.exam_id=attempts.exam_id
+                AND questions.question_id=attempts.exam_question_id
+               WHERE runs.status='approved'
+                 AND datetime(attempts.linked_at) <= datetime(?)
+               ORDER BY attempts.linked_at, attempts.exam_id,
+                        attempts.exam_question_id, attempts.document_id""",
+            (cutoff_at,),
+        ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            blueprint = json.loads(item.pop("blueprint_json"))
+            points = json.loads(item.pop("knowledge_points_json"))
+            if (not isinstance(blueprint, dict) or not isinstance(points, list)
+                    or not all(isinstance(point, str) for point in points)):
+                raise ValueError("复测记录已损坏")
+            item["blueprint"] = blueprint
+            item["knowledge_points"] = points
+            result.append(item)
+        return result
+
+    def create_exam_run(
+        self,
+        exam_id: str,
+        subject: str,
+        request: dict[str, Any],
+        blueprint: dict[str, Any],
+    ) -> ExamRun:
+        self._validate_subject(subject)
+        if not exam_id or not isinstance(request, dict) or not isinstance(blueprint, dict):
+            raise ValueError("模拟卷参数不完整")
+        try:
+            with self.connection:
+                self.connection.execute(
+                    """INSERT INTO exam_runs(
+                        exam_id, status, subject, request_json, blueprint_json
+                    ) VALUES (?, 'draft', ?, ?, ?)""",
+                    (exam_id, subject, self._json(request), self._json(blueprint)),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("模拟卷编号已存在") from exc
+        return self._require_exam_run(exam_id)
+
+    def save_exam_generation(
+        self,
+        exam_id: str,
+        generation: dict[str, Any],
+        verification: dict[str, Any],
+        questions: Iterable[dict[str, Any] | ExamQuestion],
+    ) -> ExamRun:
+        current = self._require_exam_run(exam_id)
+        if current.status == "approved":
+            raise ValueError("模拟卷已批准，不能重新生成")
+        if current.status != "draft":
+            raise ValueError("模拟卷当前状态不能保存生成结果")
+        rows = []
+        for value in questions:
+            item = asdict(value) if is_dataclass(value) else dict(value)
+            knowledge_points = item.get("knowledge_points")
+            if (not item.get("question_id") or not isinstance(knowledge_points, (list, tuple))
+                    or not knowledge_points):
+                raise ValueError("模拟题结构不完整")
+            rows.append((
+                exam_id,
+                item["question_id"],
+                item["question_type"],
+                int(item["points"]),
+                self._json(list(knowledge_points)),
+                item["blueprint_category"],
+                item["prompt"],
+                item["answer"],
+                item["explanation"],
+                item["rubric"],
+            ))
+        if not rows:
+            raise ValueError("模拟卷没有题目")
+        with self.connection:
+            self.connection.execute("BEGIN IMMEDIATE")
+            self.connection.executemany(
+                """INSERT INTO exam_questions(
+                    exam_id, question_id, question_type, points,
+                    knowledge_points_json, blueprint_category, prompt,
+                    answer, explanation, rubric
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+            changed = self.connection.execute(
+                """UPDATE exam_runs SET status='needs_parent_approval',
+                       generation_json=?, verification_json=?, error_code=NULL,
+                       revision=revision+1
+                   WHERE exam_id=? AND status='draft'""",
+                (self._json(generation), self._json(verification), exam_id),
+            ).rowcount
+            if changed != 1:
+                raise ValueError("模拟卷状态已变化")
+        return self._require_exam_run(exam_id)
+
+    def approve_exam(
+        self,
+        exam_id: str,
+        output_files: dict[str, str],
+        *,
+        expected_revision: int,
+    ) -> ExamRun:
+        current = self._require_exam_run(exam_id)
+        if current.status == "approved":
+            raise ValueError("模拟卷已批准")
+        if current.status != "needs_parent_approval":
+            raise ValueError("模拟卷尚未通过校验，不能批准")
+        if current.revision != expected_revision:
+            raise ValueError("模拟卷已变化，请重新预览")
+        if not isinstance(output_files, dict) or not output_files:
+            raise ValueError("模拟卷输出文件不能为空")
+        with self.connection:
+            changed = self.connection.execute(
+                """UPDATE exam_runs SET status='approved', output_files_json=?,
+                       revision=revision+1, approved_at=CURRENT_TIMESTAMP
+                   WHERE exam_id=? AND status='needs_parent_approval' AND revision=?""",
+                (self._json(output_files), exam_id, expected_revision),
+            ).rowcount
+        if changed != 1:
+            raise ValueError("模拟卷已变化，请重新预览")
+        return self._require_exam_run(exam_id)
+
+    def fail_exam(self, exam_id: str, error_code: str) -> ExamRun:
+        current = self._require_exam_run(exam_id)
+        if current.status == "approved":
+            raise ValueError("模拟卷已批准，不能标记失败")
+        if current.status == "failed":
+            return current
+        with self.connection:
+            self.connection.execute(
+                """UPDATE exam_runs SET status='failed', error_code=?, revision=revision+1
+                   WHERE exam_id=? AND status!='approved'""",
+                (error_code, exam_id),
+            )
+        return self._require_exam_run(exam_id)
+
+    def get_exam_run(self, exam_id: str) -> ExamRun | None:
+        row = self.connection.execute(
+            "SELECT * FROM exam_runs WHERE exam_id=?", (exam_id,)
+        ).fetchone()
+        return None if row is None else self._exam_run(row)
+
+    def list_exam_runs(self, status: str | None = None) -> tuple[ExamRun, ...]:
+        if status is None:
+            rows = self.connection.execute(
+                "SELECT * FROM exam_runs ORDER BY created_at DESC, rowid DESC"
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                """SELECT * FROM exam_runs WHERE status=?
+                   ORDER BY created_at DESC, rowid DESC""",
+                (status,),
+            ).fetchall()
+        return tuple(self._exam_run(row) for row in rows)
+
+    def exam_questions(self, exam_id: str) -> tuple[ExamQuestion, ...]:
+        rows = self.connection.execute(
+            """SELECT * FROM exam_questions WHERE exam_id=?
+               ORDER BY question_id""",
+            (exam_id,),
+        ).fetchall()
+        result = []
+        for row in rows:
+            points = json.loads(row["knowledge_points_json"])
+            if not isinstance(points, list) or not all(isinstance(point, str) for point in points):
+                raise ValueError("模拟题知识点记录已损坏")
+            result.append(ExamQuestion(
+                exam_id=row["exam_id"],
+                question_id=row["question_id"],
+                question_type=row["question_type"],
+                points=int(row["points"]),
+                knowledge_points=tuple(points),
+                blueprint_category=row["blueprint_category"],
+                prompt=row["prompt"],
+                answer=row["answer"],
+                explanation=row["explanation"],
+                rubric=row["rubric"],
+            ))
+        return tuple(result)
+
+    def record_exam_attempt(
+        self,
+        exam_id: str,
+        exam_question_id: str,
+        document_id: str,
+        document_question_id: str,
+        status: str,
+    ) -> bool:
+        if status not in {"correct", "incorrect", "partial"}:
+            raise ValueError("非法复测状态")
+        run = self._require_exam_run(exam_id)
+        if run.status != "approved":
+            raise ValueError("模拟卷尚未批准")
+        question = self.connection.execute(
+            "SELECT 1 FROM exam_questions WHERE exam_id=? AND question_id=?",
+            (exam_id, exam_question_id),
+        ).fetchone()
+        effective = self.connection.execute(
+            """SELECT status FROM effective_questions
+               WHERE document_id=? AND question_id=?""",
+            (document_id, document_question_id),
+        ).fetchone()
+        if question is None or effective is None or effective["status"] != status:
+            raise ValueError("复测题目关联无效")
+        with self.connection:
+            changed = self.connection.execute(
+                """INSERT OR IGNORE INTO exam_attempts(
+                    exam_id, exam_question_id, document_id, document_question_id, status
+                ) VALUES (?, ?, ?, ?, ?)""",
+                (exam_id, exam_question_id, document_id, document_question_id, status),
+            ).rowcount
+        return changed == 1
+
+    def exam_attempts(self, exam_id: str) -> tuple[ExamAttempt, ...]:
+        rows = self.connection.execute(
+            """SELECT * FROM exam_attempts WHERE exam_id=?
+               ORDER BY linked_at, exam_question_id, document_id, document_question_id""",
+            (exam_id,),
+        ).fetchall()
+        return tuple(ExamAttempt(**dict(row)) for row in rows)
+
+    def sanitize_exam_links(self, analysis: AnalysisResult) -> AnalysisResult:
+        """Turn untrusted or incomplete printed IDs into review-only evidence."""
+        exam_id = analysis.source_exam_id
+        run = self.get_exam_run(exam_id) if exam_id else None
+        approved = run is not None and run.status == "approved" and run.subject == analysis.subject.value
+        known = {
+            question.question_id for question in self.exam_questions(exam_id)
+        } if approved else set()
+        claimed = [
+            question.source_exam_question_id
+            for question in analysis.questions
+            if question.source_exam_question_id is not None
+        ]
+        duplicates = {value for value, count in Counter(claimed).items() if count > 1}
+        questions = []
+        for question in analysis.questions:
+            printed_id = question.source_exam_question_id
+            ordinary = exam_id is None and printed_id is None
+            valid = (
+                approved and printed_id is not None and printed_id in known
+                and printed_id not in duplicates
+            )
+            if ordinary or valid:
+                questions.append(question)
+            else:
+                reason = question.reason.rstrip()
+                suffix = "复测编号无法确认，需家长复核后才能计入掌握度。"
+                questions.append(replace(
+                    question,
+                    status=type(question.status).NEEDS_REVIEW,
+                    reason=f"{reason} {suffix}".strip(),
+                ))
+        return replace(analysis, questions=tuple(questions))
+
+    def link_exam_attempts(self, analysis: AnalysisResult) -> tuple[ExamAttempt, ...]:
+        """Link only locally verified approved IDs; repeated analyses remain idempotent."""
+        sanitized = self.sanitize_exam_links(analysis)
+        now = datetime.now(timezone.utc)
+        linked: list[ExamAttempt] = []
+        with self.connection:
+            affected = set()
+            for original, question in zip(analysis.questions, sanitized.questions):
+                if question.status != original.status:
+                    self.connection.execute(
+                        """UPDATE questions SET status=?, reason=?
+                           WHERE document_id=? AND question_id=?""",
+                        (question.status.value, question.reason, analysis.document_id, question.question_id),
+                    )
+                    affected.update(
+                        (analysis.subject.value, point) for point in question.knowledge_points
+                    )
+                printed_id = question.source_exam_question_id
+                if (sanitized.source_exam_id is None or printed_id is None
+                        or question.status.value == "needs_review"):
+                    continue
+                effective = self.connection.execute(
+                    """SELECT status FROM effective_questions
+                       WHERE document_id=? AND question_id=?""",
+                    (analysis.document_id, question.question_id),
+                ).fetchone()
+                if effective is None or effective["status"] not in {"correct", "incorrect", "partial"}:
+                    continue
+                changed = self.connection.execute(
+                    """INSERT OR IGNORE INTO exam_attempts(
+                        exam_id, exam_question_id, document_id, document_question_id, status
+                    ) VALUES (?, ?, ?, ?, ?)""",
+                    (sanitized.source_exam_id, printed_id, analysis.document_id,
+                     question.question_id, effective["status"]),
+                ).rowcount
+                if changed:
+                    row = self.connection.execute(
+                        """SELECT * FROM exam_attempts WHERE exam_id=? AND exam_question_id=?
+                           AND document_id=? AND document_question_id=?""",
+                        (sanitized.source_exam_id, printed_id, analysis.document_id, question.question_id),
+                    ).fetchone()
+                    linked.append(ExamAttempt(**dict(row)))
+            for subject, point in sorted(affected):
+                self._recompute_knowledge_stat(subject, point, now)
+        return tuple(linked)
+
+    def _require_exam_run(self, exam_id: str) -> ExamRun:
+        run = self.get_exam_run(exam_id)
+        if run is None:
+            raise ValueError("模拟卷不存在")
+        return run
+
+    @staticmethod
+    def _exam_run(row: sqlite3.Row) -> ExamRun:
+        values = {
+            name: json.loads(row[f"{name}_json"])
+            for name in ("request", "blueprint", "generation", "verification", "output_files")
+        }
+        if not all(isinstance(value, dict) for value in values.values()):
+            raise ValueError("模拟卷记录已损坏")
+        return ExamRun(
+            exam_id=row["exam_id"],
+            status=row["status"],
+            subject=row["subject"],
+            request=values["request"],
+            blueprint=values["blueprint"],
+            generation=values["generation"],
+            verification=values["verification"],
+            output_files={str(key): str(value) for key, value in values["output_files"].items()},
+            error_code=row["error_code"],
+            revision=int(row["revision"]),
+            created_at=row["created_at"],
+            approved_at=row["approved_at"],
+        )
+
+    def _require_report_run(self, report_id: str) -> ReportRun:
+        run = self.get_report_run(report_id)
+        if run is None:
+            raise ValueError("报告不存在")
+        return run
+
+    @staticmethod
+    def _report_run(row: sqlite3.Row) -> ReportRun:
+        snapshot = json.loads(row["snapshot_json"])
+        narrative = json.loads(row["narrative_json"])
+        output_files = json.loads(row["output_files_json"])
+        if not all(isinstance(value, dict) for value in (snapshot, narrative, output_files)):
+            raise ValueError("报告记录已损坏")
+        return ReportRun(
+            report_id=row["report_id"],
+            status=row["status"],
+            previous_report_id=row["previous_report_id"],
+            evidence_cutoff_at=row["evidence_cutoff_at"],
+            snapshot=snapshot,
+            narrative=narrative,
+            output_files={str(key): str(value) for key, value in output_files.items()},
+            error_code=row["error_code"],
+            created_at=row["created_at"],
+            completed_at=row["completed_at"],
+        )
 
     def get_job(self, job_id: str) -> WorkflowJob | None:
         row = self.connection.execute(

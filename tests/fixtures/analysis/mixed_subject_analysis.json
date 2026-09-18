@@ -1,6 +1,6 @@
 {
   "document_id": "six-page-mixed", "subject": "数学", "subject_confidence": 0.99,
-  "document_type": "合成混合学科验收练习", "grading_mode": "auto_grade",
+  "document_type": "合成混合学科验收练习", "source_exam_id": null, "grading_mode": "auto_grade",
   "teacher_mark_evidence": [],
   "page_subjects": [
     {"page": 1, "suggested_subject": "数学", "confidence": 0.99, "needs_confirmation": false, "reason": "同分母分数计算"},
@@ -11,12 +11,12 @@
     {"page": 6, "suggested_subject": "英语", "confidence": 0.95, "needs_confirmation": false, "reason": "名词复数填空"}
   ],
   "questions": [
-    {"question_id": "1", "question_type": "calculation", "page": 1, "prompt_summary": "1/5 + 2/5", "student_answer": "3/5", "reference_answer": "3/5", "status": "correct", "decision_source": "model", "knowledge_points": ["同分母分数加法"], "error_categories": [], "confidence": 0.99, "reason": "分母不变，分子相加"},
-    {"question_id": "2", "question_type": "calculation", "page": 2, "prompt_summary": "长4宽3的长方形面积", "student_answer": "7", "reference_answer": "12", "status": "incorrect", "decision_source": "model", "knowledge_points": ["长方形面积"], "error_categories": ["误用加法"], "confidence": 0.99, "reason": "面积等于长乘宽"},
-    {"question_id": "3", "question_type": "calculation", "page": 3, "prompt_summary": "0.2 × 3", "student_answer": "0.6", "reference_answer": "0.6", "status": "correct", "decision_source": "model", "knowledge_points": ["小数乘整数"], "error_categories": [], "confidence": 0.99, "reason": "两个十分之一乘三"},
-    {"question_id": "4", "question_type": "calculation", "page": 4, "prompt_summary": "1米等于多少厘米", "student_answer": "10", "reference_answer": "100", "status": "incorrect", "decision_source": "model", "knowledge_points": ["米与厘米换算"], "error_categories": ["进率错误"], "confidence": 0.99, "reason": "进率为100"},
-    {"question_id": "5", "question_type": "fill_blank", "page": 5, "prompt_summary": "She ___ a cat. (have)", "student_answer": "have", "reference_answer": "has", "status": "incorrect", "decision_source": "model", "knowledge_points": ["第三人称单数"], "error_categories": ["主谓不一致"], "confidence": 0.99, "reason": "主语为第三人称单数"},
-    {"question_id": "6", "question_type": "fill_blank", "page": 6, "prompt_summary": "two ___ (book)", "student_answer": "books", "reference_answer": "books", "status": "correct", "decision_source": "model", "knowledge_points": ["规则名词复数"], "error_categories": [], "confidence": 0.99, "reason": "复数加s"}
+    {"question_id": "1", "source_exam_question_id": null, "question_type": "calculation", "page": 1, "prompt_summary": "1/5 + 2/5", "student_answer": "3/5", "reference_answer": "3/5", "status": "correct", "decision_source": "model", "knowledge_points": ["同分母分数加法"], "error_categories": [], "confidence": 0.99, "reason": "分母不变，分子相加"},
+    {"question_id": "2", "source_exam_question_id": null, "question_type": "calculation", "page": 2, "prompt_summary": "长4宽3的长方形面积", "student_answer": "7", "reference_answer": "12", "status": "incorrect", "decision_source": "model", "knowledge_points": ["长方形面积"], "error_categories": ["误用加法"], "confidence": 0.99, "reason": "面积等于长乘宽"},
+    {"question_id": "3", "source_exam_question_id": null, "question_type": "calculation", "page": 3, "prompt_summary": "0.2 × 3", "student_answer": "0.6", "reference_answer": "0.6", "status": "correct", "decision_source": "model", "knowledge_points": ["小数乘整数"], "error_categories": [], "confidence": 0.99, "reason": "两个十分之一乘三"},
+    {"question_id": "4", "source_exam_question_id": null, "question_type": "calculation", "page": 4, "prompt_summary": "1米等于多少厘米", "student_answer": "10", "reference_answer": "100", "status": "incorrect", "decision_source": "model", "knowledge_points": ["米与厘米换算"], "error_categories": ["进率错误"], "confidence": 0.99, "reason": "进率为100"},
+    {"question_id": "5", "source_exam_question_id": null, "question_type": "fill_blank", "page": 5, "prompt_summary": "She ___ a cat. (have)", "student_answer": "have", "reference_answer": "has", "status": "incorrect", "decision_source": "model", "knowledge_points": ["第三人称单数"], "error_categories": ["主谓不一致"], "confidence": 0.99, "reason": "主语为第三人称单数"},
+    {"question_id": "6", "source_exam_question_id": null, "question_type": "fill_blank", "page": 6, "prompt_summary": "two ___ (book)", "student_answer": "books", "reference_answer": "books", "status": "correct", "decision_source": "model", "knowledge_points": ["规则名词复数"], "error_categories": [], "confidence": 0.99, "reason": "复数加s"}
   ],
   "summary": "六页合成验收资料，每页一道题。"
 }

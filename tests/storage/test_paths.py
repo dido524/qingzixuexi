@@ -49,3 +49,11 @@ def test_safe_file_path_accepts_document_image_name(paths: KnowledgePaths) -> No
 
     assert path.parent == paths.ensure_subject_tree("英语").raw
     assert path.name == "page_001.jpg"
+
+
+def test_exam_directory_is_guarded_below_fixed_root(paths: KnowledgePaths) -> None:
+    directory = paths.exam_directory(2026, 9, "QZ-MATH-20260918-TEST")
+
+    assert directory == paths.knowledge_root / "模拟试卷" / "2026" / "09" / "QZ-MATH-20260918-TEST"
+    with pytest.raises(ValueError, match="非法模拟卷编号"):
+        paths.exam_directory(2026, 9, "../outside")

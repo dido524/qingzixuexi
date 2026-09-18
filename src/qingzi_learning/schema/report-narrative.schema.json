@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Grounded learning report narrative",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "child_headline",
+    "child_progress",
+    "child_focus",
+    "child_goals",
+    "child_closing",
+    "parent_summary",
+    "parent_observations",
+    "parent_recommendations"
+  ],
+  "properties": {
+    "source": {"type": "string", "enum": ["codex", "local_template"]},
+    "child_headline": {"type": "string", "minLength": 1, "maxLength": 80},
+    "child_progress": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
+    "child_focus": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
+    "child_goals": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
+    "child_closing": {"type": "string", "minLength": 1, "maxLength": 120},
+    "parent_summary": {"type": "string", "minLength": 1, "maxLength": 240},
+    "parent_observations": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/item"}},
+    "parent_recommendations": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/item"}}
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "evidence_ids"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1, "maxLength": 180},
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

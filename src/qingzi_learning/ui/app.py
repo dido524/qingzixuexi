@@ -25,9 +25,14 @@ from qingzi_learning.config import AppConfig
 from qingzi_learning.workflow.controller import WorkflowOutcome
 from qingzi_learning.ui.camera_process import CameraProcess
 from qingzi_learning.ui.page_subject_dialog import PageSubjectDialog
+from qingzi_learning.ui.learning_center import LearningCenterDialog
 from qingzi_learning.ui.taskbar import TaskbarNotifier
 from qingzi_learning.review.service import ReviewItem
 from qingzi_learning.ui.review_dialog import ReviewDialog
+from qingzi_learning.reporting.service import ReportArtifacts
+from qingzi_learning.exams.blueprint import ExamRequest
+from qingzi_learning.exams.service import ExamArtifacts
+from qingzi_learning.storage.repository import ExamRun, ReportRun
 
 
 class _Camera(Protocol):
@@ -66,11 +71,16 @@ class UiEvent:
     dialog_id: str | None = None
     review_items: tuple[ReviewItem, ...] = ()
     review_revision: int = 0
+    report_runs: tuple[ReportRun, ...] = ()
+    report_artifacts: ReportArtifacts | None = None
+    exam_runs: tuple[ExamRun, ...] = ()
+    exam_blueprint: dict | None = None
+    exam_artifacts: ExamArtifacts | None = None
 
 
 @dataclass(frozen=True)
 class _Command:
-    kind: Literal["capture", "retake", "retake_page", "next", "finish", "new_capture", "confirm_subject", "confirm_page_subject", "retry", "recover", "resume_capture", "list_reviews", "confirm_review", "stop"]
+    kind: Literal["capture", "retake", "retake_page", "next", "finish", "new_capture", "confirm_subject", "confirm_page_subject", "retry", "recover", "resume_capture", "list_reviews", "confirm_review", "list_reports", "generate_report", "list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam", "stop"]
     operation_id: str
     job_id: str | None = None
     subject: str | None = None
@@ -84,6 +94,9 @@ class _Command:
     corrected_answer: str = ""
     note: str = ""
     expected_version: str | None = None
+    exam_request: ExamRequest | None = None
+    exam_id: str | None = None
+    expected_revision: int | None = None
 
 
 class WorkflowWorker(threading.Thread):
@@ -107,7 +120,8 @@ class WorkflowWorker(threading.Thread):
 
     def submit(self, kind, *, job_id=None, subject=None, page_number=None, context="active_capture",
                session_generation=None, session_id=None, dialog_id=None, question_id=None,
-               final_status=None, corrected_answer="", note="", expected_version=None) -> str:
+               final_status=None, corrected_answer="", note="", expected_version=None,
+               exam_request=None, exam_id=None, expected_revision=None) -> str:
         operation_id = uuid4().hex
         if kind == "resume_capture":
             generation = session_generation or uuid4().hex
@@ -115,14 +129,15 @@ class WorkflowWorker(threading.Thread):
         elif kind == "new_capture":
             generation = session_generation or uuid4().hex
             identity = None
-        elif context in {"recovered_job", "review_job"}:
+        elif context in {"recovered_job", "review_job", "learning_center"}:
             generation, identity = session_generation, session_id
         else:
             generation = session_generation or self._session_generation or uuid4().hex
             identity = session_id or self._session_id
         self._commands.put(_Command(kind, operation_id, job_id, subject, page_number, context,
                                     generation, identity, dialog_id, question_id, final_status,
-                                    corrected_answer, note, expected_version))
+                                    corrected_answer, note, expected_version, exam_request,
+                                    exam_id, expected_revision))
         return operation_id
 
     def request_shutdown(self) -> None:
@@ -185,6 +200,8 @@ class WorkflowWorker(threading.Thread):
             elif command.kind == "recover": self._recover()
             elif command.kind == "resume_capture": self._resume(command)
             elif command.kind in {"list_reviews", "confirm_review"}: self._review(command)
+            elif command.kind in {"list_reports", "generate_report"}: self._reports(command)
+            elif command.kind in {"list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam"}: self._exams(command)
         except CameraNotFound:
             self._camera_failed()
             self._emit(self._command_event(command, "camera_unavailable", message=f"未找到证件拍照机（硬件 ID {self.config.camera_vid:04X}:{self.config.camera_pid:04X}）。未切换到其他摄像头。"))
@@ -226,6 +243,48 @@ class WorkflowWorker(threading.Thread):
         message = "复核已保存，知识库已更新。" if not job.payload.get("export_pending") else "复核已保存，页面更新未完成，请在恢复任务中重试。"
         self._emit(self._command_event(command, "review_saved", outcome=outcome, completion=self._completion(outcome),
                                       review_items=service.list_pending(), message=message))
+
+    def _reports(self, command):
+        if command.kind == "list_reports":
+            exam_history = getattr(self._controller, "exam_history", lambda: ())
+            self._emit(self._command_event(
+                command, "report_list", report_runs=self._controller.report_history(),
+                exam_runs=exam_history(),
+                message="报告记录已加载。",
+            ))
+            return
+        artifacts = self._controller.generate_learning_report()
+        self._emit(self._command_event(
+            command, "report_generated", report_runs=self._controller.report_history(),
+            report_artifacts=artifacts, message="新报告已生成，可以分别查看或打印。",
+        ))
+
+    def _exams(self, command):
+        if command.kind == "list_exams":
+            self._emit(self._command_event(
+                command, "exam_list", exam_runs=self._controller.exam_history(),
+                message="模拟卷记录已加载。",
+            ))
+            return
+        if command.kind == "preview_exam_blueprint":
+            blueprint = self._controller.preview_exam_blueprint(command.exam_request)
+            self._emit(self._command_event(
+                command, "exam_blueprint", exam_runs=self._controller.exam_history(),
+                exam_blueprint=blueprint, message="组卷依据已生成，请确认后再生成题目。",
+            ))
+            return
+        if command.kind == "generate_exam":
+            self._controller.generate_exam(command.exam_request)
+            self._emit(self._command_event(
+                command, "exam_generated", exam_runs=self._controller.exam_history(),
+                message="模拟卷已通过校验，请家长预览答案后确认发布。",
+            ))
+            return
+        artifacts = self._controller.approve_exam(command.exam_id, command.expected_revision)
+        self._emit(self._command_event(
+            command, "exam_approved", exam_runs=self._controller.exam_history(),
+            exam_artifacts=artifacts, message="模拟卷已批准，四份材料可以分别打印。",
+        ))
 
     def _capture(self, command, retake: bool) -> None:
         if self._session is None:
@@ -377,6 +436,8 @@ class CaptureViewModel:
         self.recovered_tasks = {}; self.recovery_error_path = None; self.completion = CompletionSummary()
         self.review_dialog_id = None; self.review_items = (); self.review_message = ""
         self.review_revisions = {}
+        self.learning_center_dialog_id = None; self.report_runs = (); self.report_artifacts = None; self.report_message = ""
+        self.exam_runs = (); self.exam_blueprint = None; self.exam_artifacts = None; self.exam_message = ""
 
     @property
     def can_capture(self): return not self.worker_failed and not self.busy and not self.sealed and not self._captured_current
@@ -458,6 +519,31 @@ class CaptureViewModel:
         # Operation ownership outlives a deferred window. Its durable completion
         # refreshes recovery and releases only its own busy operation; visible
         # dialog mutation still requires the current dialog identity.
+        learning_events = {"report_list", "report_generated", "exam_list", "exam_blueprint", "exam_generated", "exam_approved", "worker_error"}
+        if event.context == "learning_center" and event.kind in learning_events:
+            if event.operation_id != self.active_operation_id:
+                return False
+            self.finish_work(event.operation_id)
+            if (self.learning_center_dialog_id is None
+                    or event.dialog_id != self.learning_center_dialog_id):
+                return False
+            if event.kind in {"report_list", "report_generated"}:
+                self.report_runs = event.report_runs
+                self.report_artifacts = event.report_artifacts
+                self.report_message = event.message
+                self.status = event.message or "报告记录已更新。"
+                if event.exam_runs:
+                    self.exam_runs = event.exam_runs
+            elif event.kind in {"exam_list", "exam_blueprint", "exam_generated", "exam_approved"}:
+                self.exam_runs = event.exam_runs
+                self.exam_blueprint = event.exam_blueprint
+                self.exam_artifacts = event.exam_artifacts
+                self.exam_message = event.message
+                self.status = event.message or "模拟卷记录已更新。"
+            else:
+                self.report_message = event.message
+                self.status = event.message
+            return True
         page_operation = self._page_subject_operations.get(event.operation_id)
         owns_page_operation = page_operation is not None and event.dialog_id == page_operation
         stale_page_dialog = False
@@ -576,8 +662,8 @@ def _window_dimensions(screen_width,screen_height):
 
 
 class LearningAssistantApp:
-    def __init__(self,root,config,worker,*,open_path=None,taskbar_notifier=None):
-        self.root,self.config,self.worker=root,config,worker; self.vm=CaptureViewModel(); self._open_path=open_path or _open_local_path; self._closing=False; self._dialogs={}; self._dialog_context={}; self._poll_after_id=None; self._destroyed=False; self._review_dialog=None; self._page_subject_dialog=None; self._page_subject_context=None
+    def __init__(self,root,config,worker,*,open_path=None,print_path=None,taskbar_notifier=None):
+        self.root,self.config,self.worker=root,config,worker; self.vm=CaptureViewModel(); self._open_path=open_path or _open_local_path; self._print_path=print_path or _print_local_path; self._closing=False; self._dialogs={}; self._dialog_context={}; self._poll_after_id=None; self._destroyed=False; self._review_dialog=None; self._learning_center=None; self._page_subject_dialog=None; self._page_subject_context=None
         self._taskbar_notifier=taskbar_notifier or TaskbarNotifier(); self._page_subject_flash_latches=set(); self._active_taskbar_flash_handle=None
         self._preview_source_data=None; self._preview_source_image=None; self._preview_render_size=None; self._preview_resize_after_id=None; self._preview_resample=Image.Resampling.BILINEAR
         self._build(); self._bind_taskbar_focus(self.root); self._refresh(); root.protocol("WM_DELETE_WINDOW",self.close); worker.start(); self._schedule_poll()
@@ -637,7 +723,7 @@ class LearningAssistantApp:
         primary=tk.Frame(self.footer,bg=colors["card"]); primary.pack(fill="x",padx=16,pady=(8,4))
         secondary=tk.Frame(self.footer,bg=colors["card"]); secondary.pack(fill="x",padx=16,pady=(0,7))
         primary_items=(("拍下这一页",self.capture,"capture"),("重拍选中页",self.retake,"retake"),("下一页",self.next_page,"next"),("完成并分析",self.finish,"finish"))
-        secondary_items=(("重试任务",self.retry_selected,"retry"),("待家长确认",self.open_reviews,"review"),("资料文件夹",self.open_folder,"folder"),("知识库总览",self.open_dashboard,"dashboard"),("本次分析",self.open_details,"details"))
+        secondary_items=(("重试任务",self.retry_selected,"retry"),("待家长确认",self.open_reviews,"review"),("资料文件夹",self.open_folder,"folder"),("知识库总览",self.open_dashboard,"dashboard"),("学习与复习",self.open_learning_center,"learning"),("本次分析",self.open_details,"details"))
         for column,(text,fn,name) in enumerate(primary_items):
             primary.grid_columnconfigure(column,weight=1,uniform="primary")
             button=tk.Button(primary,text=text,command=fn,font=("Microsoft YaHei UI",9,"bold"),padx=10,pady=6)
@@ -711,6 +797,62 @@ class LearningAssistantApp:
         self._review_dialog = ReviewDialog(self.root, identity, self._save_review, self.close_reviews, self._open_path)
         self._submit("list_reviews", "正在读取待确认题目…", context="review_job", dialog_id=identity)
 
+    def open_learning_center(self):
+        if (self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None
+                or self._closing or self.vm.busy or self.vm.worker_failed):
+            return
+        if self._learning_center is not None:
+            self._learning_center.window.lift(); return
+        identity = uuid4().hex
+        self.vm.learning_center_dialog_id = identity
+        self._learning_center = LearningCenterDialog(
+            self.root,
+            identity,
+            knowledge_root=self.config.knowledge_root,
+            on_generate_report=self._generate_learning_report,
+            on_open=self._open_path,
+            on_print=self._print_path,
+            on_close=self.close_learning_center,
+            on_preview_exam=self._preview_exam_blueprint,
+            on_generate_exam=self._generate_exam,
+            on_approve_exam=self._approve_exam,
+        )
+        self._submit("list_reports", "正在读取学情报告和模拟卷…", context="learning_center", dialog_id=identity)
+
+    def _preview_exam_blueprint(self, dialog_id, request):
+        if self._learning_center is None or dialog_id != self.vm.learning_center_dialog_id or self._closing:
+            return False
+        return self._submit("preview_exam_blueprint", "正在计算组卷依据…", context="learning_center", dialog_id=dialog_id, exam_request=request)
+
+    def _generate_exam(self, dialog_id, request):
+        if self._learning_center is None or dialog_id != self.vm.learning_center_dialog_id or self._closing:
+            return False
+        return self._submit("generate_exam", "正在生成并校验模拟卷…", context="learning_center", dialog_id=dialog_id, exam_request=request)
+
+    def _approve_exam(self, dialog_id, exam_id, revision):
+        if self._learning_center is None or dialog_id != self.vm.learning_center_dialog_id or self._closing:
+            return False
+        return self._submit("approve_exam", "正在发布可打印材料…", context="learning_center", dialog_id=dialog_id, exam_id=exam_id, expected_revision=revision)
+
+    def _generate_learning_report(self, dialog_id):
+        if (self._learning_center is None or dialog_id != self.vm.learning_center_dialog_id
+                or self._closing):
+            return False
+        return self._submit(
+            "generate_report", "正在生成增量学情报告…", context="learning_center",
+            dialog_id=dialog_id,
+        )
+
+    def close_learning_center(self, dialog_id):
+        if dialog_id != self.vm.learning_center_dialog_id:
+            return
+        self.vm.learning_center_dialog_id = None
+        self.vm.report_runs = (); self.vm.report_artifacts = None; self.vm.report_message = ""
+        self.vm.exam_runs = (); self.vm.exam_blueprint = None; self.vm.exam_artifacts = None; self.vm.exam_message = ""
+        dialog, self._learning_center = self._learning_center, None
+        if dialog is not None:
+            dialog.destroy()
+
     def _save_review(self, dialog_id, item, final_status, corrected_answer, note):
         if dialog_id != self.vm.review_dialog_id or self._review_dialog is None:
             return False
@@ -768,6 +910,16 @@ class LearningAssistantApp:
                     self._review_dialog.show(self.vm.review_items, self.vm.review_message)
                 elif accepted and event.kind == "worker_error" and event.dialog_id == self.vm.review_dialog_id and self._review_dialog is not None:
                     self._review_dialog.show(self.vm.review_items, event.message)
+                if (accepted and event.context == "learning_center"
+                        and event.kind in {"report_list", "report_generated", "exam_list", "exam_blueprint", "exam_generated", "exam_approved", "worker_error"}
+                        and self._learning_center is not None):
+                    self._learning_center.show(
+                        self.vm.report_runs, self.vm.report_message, self.vm.report_artifacts
+                    )
+                    self._learning_center.show_exams(
+                        self.vm.exam_runs, self.vm.exam_message,
+                        self.vm.exam_blueprint, self.vm.exam_artifacts,
+                    )
                 if accepted:
                     if event.kind=="workflow_outcome" and event.operation_id and event.outcome and self.vm.page_subject_dialog_needed:
                         self._flash_page_subject_confirmation_if_needed()
@@ -788,7 +940,8 @@ class LearningAssistantApp:
         if not self.vm.recovered_page_subject_queue:
             return
         if (self._closing or self.vm.busy or self.vm.page_subject_dialog_needed
-                or self._page_subject_dialog is not None or self._review_dialog is not None or self._dialogs):
+                or self._page_subject_dialog is not None or self._review_dialog is not None
+                or self._learning_center is not None or self._dialogs):
             return
         while self.vm.recovered_page_subject_queue:
             key = self.vm.recovered_page_subject_queue.pop(0)
@@ -906,6 +1059,8 @@ class LearningAssistantApp:
     def _refresh(self):
         if self._page_subject_dialog is not None:
             self._page_subject_dialog.set_busy(self.vm.busy)
+        if self._learning_center is not None:
+            self._learning_center.set_busy(self.vm.busy)
         self.status_var.set(self.vm.status)
         self.page_var.set(f"准备拍摄第 {self.vm.page_number} 页  ·  已拍 {self.vm.captured_page_count} 页")
         wanted=[*(f"第 {i} 页" for i,_ in enumerate(self.vm.page_paths,1)),*self.vm.recovered_tasks.keys()]
@@ -936,7 +1091,8 @@ class LearningAssistantApp:
                 "retry":not page_modal and not self.vm.busy and not self.vm.worker_failed and self._selected_recovery() is not None,
                 "folder":bool(target.saved_folder and target.saved_folder.exists()),
                 "details":bool(target.analysis_details_path and target.analysis_details_path.exists()),
-                "dashboard":(self.config.knowledge_root/"知识库首页.html").exists()}
+                "dashboard":(self.config.knowledge_root/"知识库首页.html").exists(),
+                "learning":not page_modal and not self.vm.busy and not self.vm.worker_failed}
         self.buttons["capture"].configure(text="开始下一份" if self.vm.sealed else "拍下这一页")
         states["capture"]=(self.vm.can_capture or self.vm.can_start_new) and not page_modal
         for name,allowed in states.items(): self._style_button(self.buttons[name],allowed and not self._closing)
@@ -970,6 +1126,8 @@ class LearningAssistantApp:
         self._close_page_subject_dialog()
         if self._review_dialog is not None:
             self.close_reviews(self.vm.review_dialog_id)
+        if self._learning_center is not None:
+            self.close_learning_center(self.vm.learning_center_dialog_id)
         if self._poll_after_id is not None:
             try:self.root.after_cancel(self._poll_after_id)
             except Exception:pass
@@ -1000,3 +1158,10 @@ def _open_local_path(path):
     path=Path(path).resolve()
     if os.name=="nt":os.startfile(str(path))
     else:webbrowser.open(path.as_uri())
+
+
+def _print_local_path(path):
+    """Open one explicit artifact and request the browser's print dialog."""
+    path = Path(path).resolve()
+    if path.is_file():
+        webbrowser.open(path.as_uri() + "?print=1")

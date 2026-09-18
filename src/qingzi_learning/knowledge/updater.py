@@ -31,6 +31,7 @@ class KnowledgeUpdater:
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def apply(self, analysis: AnalysisResult) -> UpdateSummary:
+        analysis = self.repo.sanitize_exam_links(analysis)
         points = tuple(
             dict.fromkeys(
                 point
@@ -39,6 +40,7 @@ class KnowledgeUpdater:
             )
         )
         self.repo.replace_analysis_and_recompute(analysis, now=self._now())
+        self.repo.link_exam_attempts(analysis)
         return UpdateSummary(analysis.document_id, analysis.subject.value, points)
 
     def recompute(self, subject: str, knowledge_points: Iterable[str]) -> None:

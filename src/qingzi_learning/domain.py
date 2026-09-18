@@ -78,6 +78,7 @@ class QuestionAnalysis:
     error_categories: tuple[str, ...]
     confidence: float
     reason: str
+    source_exam_question_id: str | None = None
 
     @property
     def counts_toward_mastery(self) -> bool:
@@ -104,6 +105,7 @@ class AnalysisResult:
     questions: tuple[QuestionAnalysis, ...]
     summary: str
     page_subjects: tuple[PageSubjectAssignment, ...] = ()
+    source_exam_id: str | None = None
 
 
 def validate_analysis_payload(payload: Mapping[str, Any], *, allow_legacy: bool = False) -> None:
@@ -114,4 +116,9 @@ def validate_analysis_payload(payload: Mapping[str, Any], *, allow_legacy: bool 
     schema = json.loads(schema_text)
     if allow_legacy and "page_subjects" not in payload:
         schema["required"].remove("page_subjects")
+    if allow_legacy:
+        if "source_exam_id" not in payload:
+            schema["required"].remove("source_exam_id")
+        if any("source_exam_question_id" not in question for question in payload.get("questions", ())):
+            schema["$defs"]["question"]["required"].remove("source_exam_question_id")
     validate(instance=dict(payload), schema=schema)

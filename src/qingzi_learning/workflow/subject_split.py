@@ -159,6 +159,7 @@ def split_analysis(analysis: AnalysisResult, plan: SubjectSplitPlan) -> tuple[An
                     f"{len(questions)} 题。"
                 ),
                 page_subjects=page_subjects,
+                source_exam_id=analysis.source_exam_id,
             )
         )
     if group_pages != set(final_assignments):

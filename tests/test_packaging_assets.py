@@ -40,6 +40,9 @@ def test_build_script_packages_required_schemas_and_windows_runtime_dependencies
     assert "pyinstaller==6.22.3" in (root / "requirements-build.txt").read_text("utf-8")
     assert "analysis-result.schema.json" in text
     assert "analysis-transport.schema.json" in text
+    assert "report-narrative.schema.json" in text
+    assert "exam-generation.schema.json" in text
+    assert "exam-verification.schema.json" in text
     assert "storage\\schema.sql" in text
     assert "--collect-all cv2_enumerate_cameras" in text
     assert "--collect-all PIL" in text

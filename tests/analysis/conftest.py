@@ -28,6 +28,7 @@ def payload(document):
         "subject": "语文",
         "subject_confidence": 0.96,
         "document_type": "作业",
+        "source_exam_id": None,
         "grading_mode": "mixed",
         "teacher_mark_evidence": ["第1页老师打勾"],
         "page_subjects": [
@@ -49,6 +50,7 @@ def payload(document):
         "questions": [
             {
                 "question_id": "1",
+                "source_exam_question_id": None,
                 "question_type": "fill_blank",
                 "page": 1,
                 "prompt_summary": "词语填空",
@@ -63,6 +65,7 @@ def payload(document):
             },
             {
                 "question_id": "2",
+                "source_exam_question_id": None,
                 "question_type": "composition",
                 "page": 2,
                 "prompt_summary": "作文：记一次旅行",

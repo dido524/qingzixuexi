@@ -21,6 +21,7 @@ def valid_payload():
         "subject": "数学",
         "subject_confidence": 0.96,
         "document_type": "试卷",
+        "source_exam_id": None,
         "grading_mode": "mixed",
         "teacher_mark_evidence": ["page_002: red cross near question 4"],
         "page_subjects": [
@@ -35,6 +36,7 @@ def valid_payload():
         "questions": [
             {
                 "question_id": "4",
+                "source_exam_question_id": None,
                 "question_type": "application",
                 "page": 2,
                 "prompt_summary": "分数除法应用题",
@@ -105,6 +107,19 @@ def test_only_confident_confirmed_questions_count_toward_mastery(
 
 def test_validate_analysis_payload_uses_packaged_schema(valid_payload):
     assert validate_analysis_payload(valid_payload) is None
+
+
+def test_normal_homework_requires_explicit_null_exam_fields(valid_payload):
+    assert validate_analysis_payload(valid_payload) is None
+    del valid_payload["source_exam_id"]
+    with pytest.raises(ValidationError):
+        validate_analysis_payload(valid_payload)
+
+
+def test_exam_question_identifier_is_required_even_for_normal_homework(valid_payload):
+    del valid_payload["questions"][0]["source_exam_question_id"]
+    with pytest.raises(ValidationError):
+        validate_analysis_payload(valid_payload)
 
 
 @pytest.mark.parametrize("subject", ["科学", "", None])

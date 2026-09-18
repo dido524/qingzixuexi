@@ -19,6 +19,72 @@ CREATE TABLE IF NOT EXISTS reading_output_set (
     paths_json TEXT NOT NULL
 );
 
+-- Immutable snapshots used to compare one learning report with the next.
+-- A failed/generating row never replaces the latest completed report.
+CREATE TABLE IF NOT EXISTS report_runs (
+    report_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK(status IN ('generating', 'completed', 'failed')),
+    previous_report_id TEXT REFERENCES report_runs(report_id),
+    evidence_cutoff_at TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    narrative_json TEXT NOT NULL DEFAULT '{}',
+    output_files_json TEXT NOT NULL DEFAULT '{}',
+    error_code TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_runs_status_created
+ON report_runs(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS exam_runs (
+    exam_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK(status IN (
+        'draft', 'validating', 'needs_parent_approval', 'approved', 'failed'
+    )),
+    subject TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    blueprint_json TEXT NOT NULL,
+    generation_json TEXT NOT NULL DEFAULT '{}',
+    verification_json TEXT NOT NULL DEFAULT '{}',
+    output_files_json TEXT NOT NULL DEFAULT '{}',
+    error_code TEXT,
+    revision INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    approved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_exam_runs_status_created
+ON exam_runs(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS exam_questions (
+    exam_id TEXT NOT NULL REFERENCES exam_runs(exam_id) ON DELETE CASCADE,
+    question_id TEXT NOT NULL,
+    question_type TEXT NOT NULL,
+    points INTEGER NOT NULL CHECK(points > 0),
+    knowledge_points_json TEXT NOT NULL,
+    blueprint_category TEXT NOT NULL CHECK(blueprint_category IN ('primary', 'related', 'stable')),
+    prompt TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    rubric TEXT NOT NULL,
+    PRIMARY KEY(exam_id, question_id)
+);
+
+CREATE TABLE IF NOT EXISTS exam_attempts (
+    exam_id TEXT NOT NULL,
+    exam_question_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    document_question_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('correct', 'incorrect', 'partial')),
+    linked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(exam_id, exam_question_id, document_id, document_question_id),
+    FOREIGN KEY(exam_id, exam_question_id)
+        REFERENCES exam_questions(exam_id, question_id) ON DELETE CASCADE,
+    FOREIGN KEY(document_id, document_question_id)
+        REFERENCES questions(document_id, question_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS documents (
     document_id TEXT PRIMARY KEY,
     subject TEXT NOT NULL,

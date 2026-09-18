@@ -47,14 +47,70 @@ def test_dashboard_is_self_contained_and_marks_future_actions(
     assert path.name == "知识库首页.html"
     assert "晴子学习知识库" in html
     assert "错题本" in html and "知识点地图" in html
-    assert "生成考前复习包（后续功能）" in html
-    assert "发起掌握度检验（后续功能）" in html
+    assert "针对性模拟试卷" in html
+    assert "尚无已批准模拟卷" in html
     assert "http://" not in html and "https://" not in html
     assert "尚无数据" in html
     assert "掌握度 0.0%" not in html
     assert '<section id="知识点地图" class="panel">' in html
     assert '<section id="最近更新" class="panel">' in html
     assert not path.with_suffix(".html.part").exists()
+
+
+def test_dashboard_links_latest_completed_learning_report(
+    repo: KnowledgeRepository, dashboard: DashboardExporter
+) -> None:
+    from qingzi_learning.reporting.narrative import LocalNarrativeProvider, NarrativeService
+    from qingzi_learning.reporting.service import LearningReportService
+
+    class Offline:
+        def generate(self, _profile):
+            raise RuntimeError("offline")
+
+    service = LearningReportService(
+        repo,
+        narrative_service=NarrativeService(Offline(), LocalNarrativeProvider()),
+        id_factory=lambda _now: "report-dashboard",
+    )
+    service.generate(now=datetime(2026, 9, 18, tzinfo=timezone.utc))
+
+    text = dashboard.export().read_text("utf-8")
+
+    assert "查看最新学情报告" in text
+    assert "%E5%AD%A6%E4%B9%A0%E6%8A%A5%E5%91%8A/%E6%9C%80%E6%96%B0%E5%AD%A6%E6%83%85%E6%8A%A5%E5%91%8A.html" in text
+    assert "针对性模拟试卷" in text
+
+
+def test_dashboard_links_only_an_approved_exam(
+    repo: KnowledgeRepository, dashboard: DashboardExporter
+) -> None:
+    run = repo.create_exam_run("QZ-MATH-DASH", "数学", {}, {})
+    run = repo.save_exam_generation(
+        run.exam_id,
+        {"title": "练习"},
+        {"approved": True},
+        [{
+            "question_id": "Q01", "question_type": "application", "points": 100,
+            "knowledge_points": ["分数"], "blueprint_category": "primary",
+            "prompt": "新题", "answer": "答案", "explanation": "解析", "rubric": "评分",
+        }],
+    )
+    folder = repo.config.knowledge_root / "模拟试卷" / "2026" / "09" / run.exam_id
+    folder.mkdir(parents=True)
+    outputs = {}
+    for key, name in {
+        "student": "学生试卷.html", "answer_sheet": "答题纸.html",
+        "solutions": "答案与解析.html", "blueprint": "组卷说明.html",
+    }.items():
+        path = folder / name
+        path.write_text(name, "utf-8")
+        outputs[key] = path.relative_to(repo.config.knowledge_root).as_posix()
+    repo.approve_exam(run.exam_id, outputs, expected_revision=run.revision)
+
+    text = dashboard.export().read_text("utf-8")
+
+    assert "QZ-MATH-DASH" in text
+    assert all(label in text for label in ("学生试卷", "答题纸", "答案与解析", "组卷说明"))
 
 
 def test_dashboard_embeds_escaped_snapshot_and_renders_weak_point(

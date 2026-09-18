@@ -15,11 +15,14 @@ $icon = Join-Path $projectRoot 'assets\qingzi-learning-assistant.ico'
 $versionFile = Join-Path $projectRoot 'scripts\windows-version-info.txt'
 $strictSchema = Join-Path $projectRoot 'src\qingzi_learning\schema\analysis-result.schema.json'
 $transportSchema = Join-Path $projectRoot 'src\qingzi_learning\schema\analysis-transport.schema.json'
+$reportNarrativeSchema = Join-Path $projectRoot 'src\qingzi_learning\schema\report-narrative.schema.json'
+$examGenerationSchema = Join-Path $projectRoot 'src\qingzi_learning\schema\exam-generation.schema.json'
+$examVerificationSchema = Join-Path $projectRoot 'src\qingzi_learning\schema\exam-verification.schema.json'
 $storageSchema = Join-Path $projectRoot 'src\qingzi_learning\storage\schema.sql'
 $schemaDestination = 'qingzi_learning\schema'
 $storageDestination = 'qingzi_learning\storage'
 
-foreach ($required in @($python, $main, $iconSource, $versionFile, $strictSchema, $transportSchema, $storageSchema)) {
+foreach ($required in @($python, $main, $iconSource, $versionFile, $strictSchema, $transportSchema, $reportNarrativeSchema, $examGenerationSchema, $examVerificationSchema, $storageSchema)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "构建输入缺失：$required"
     }
@@ -52,6 +55,9 @@ try {
         --hidden-import multiprocessing `
         --add-data "$strictSchema;$schemaDestination" `
         --add-data "$transportSchema;$schemaDestination" `
+        --add-data "$reportNarrativeSchema;$schemaDestination" `
+        --add-data "$examGenerationSchema;$schemaDestination" `
+        --add-data "$examVerificationSchema;$schemaDestination" `
         --add-data "$storageSchema;$storageDestination" `
         $main
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败。" }
@@ -65,7 +71,7 @@ try {
     }
     $internalRoot = Join-Path $projectRoot 'dist\晴子学习助手\_internal'
     $schemaRoot = Join-Path $internalRoot 'qingzi_learning\schema'
-    foreach ($schema in @('analysis-result.schema.json', 'analysis-transport.schema.json')) {
+    foreach ($schema in @('analysis-result.schema.json', 'analysis-transport.schema.json', 'report-narrative.schema.json', 'exam-generation.schema.json', 'exam-verification.schema.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $schemaRoot $schema) -PathType Leaf)) {
             throw "打包检查失败：未包含 Schema $schema"
         }

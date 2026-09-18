@@ -24,6 +24,9 @@ from qingzi_learning.export.publication import PublicationCoordinator
 from qingzi_learning.export.safe_write import _guard, atomic_write
 from qingzi_learning.knowledge.updater import KnowledgeUpdater
 from qingzi_learning.review.service import ReviewService
+from qingzi_learning.reporting.service import LearningReportService
+from qingzi_learning.exams.blueprint import ExamRequest
+from qingzi_learning.exams.service import TargetedExamService
 from qingzi_learning.storage.paths import KnowledgePaths
 from qingzi_learning.storage.repository import KnowledgeRepository, WorkflowJob
 from qingzi_learning.workflow.subject_split import (
@@ -71,9 +74,40 @@ class WorkflowController:
         self.markdown = markdown or MarkdownExporter(repo, self.paths)
         self.dashboard = dashboard or DashboardExporter(repo, self.paths)
         self.review = ReviewService(repo, updater=self.updater, markdown=self.markdown, dashboard=self.dashboard)
+        self.reports = LearningReportService(repo)
+        self.exams = TargetedExamService(repo)
         self.publication = PublicationCoordinator(repo)
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._lock = threading.RLock()
+
+    def generate_learning_report(self):
+        with self._lock:
+            artifacts = self.reports.generate()
+            # Refresh the shared homepage only after the report is durably complete.
+            self.dashboard.export()
+            return artifacts
+
+    def report_history(self):
+        with self._lock:
+            return self.reports.history()
+
+    def preview_exam_blueprint(self, request: ExamRequest):
+        with self._lock:
+            return self.exams.preview_blueprint(request)
+
+    def generate_exam(self, request: ExamRequest):
+        with self._lock:
+            return self.exams.create_draft(request)
+
+    def approve_exam(self, exam_id: str, expected_revision: int):
+        with self._lock:
+            artifacts = self.exams.approve(exam_id, expected_revision=expected_revision)
+            self.dashboard.export()
+            return artifacts
+
+    def exam_history(self):
+        with self._lock:
+            return self.exams.history()
 
     def finish_and_analyze(self, session: CaptureSession) -> WorkflowOutcome:
         with self._lock:

@@ -61,6 +61,39 @@ class KnowledgePaths:
             raise ValueError("非法文件名")
         return self._contained(self._knowledge_root / filename)
 
+    def report_directory(
+        self, year: str | int, month: str | int, report_id: str
+    ) -> Path:
+        """Return one immutable report-run directory below the fixed report root."""
+        if not str(year).isdigit() or not str(month).isdigit():
+            raise ValueError("非法报告日期")
+        if not _FILE_NAME.fullmatch(report_id):
+            raise ValueError("非法报告编号")
+        directory = self._contained(
+            self._knowledge_root / "学习报告" / str(year) / str(month).zfill(2) / report_id
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        return self._contained(directory)
+
+    def latest_report_path(self) -> Path:
+        directory = self._contained(self._knowledge_root / "学习报告")
+        directory.mkdir(parents=True, exist_ok=True)
+        return self._contained(directory / "最新学情报告.html")
+
+    def exam_directory(
+        self, year: str | int, month: str | int, exam_id: str
+    ) -> Path:
+        """Return one immutable approved-exam directory below the fixed root."""
+        if not str(year).isdigit() or not str(month).isdigit():
+            raise ValueError("非法模拟卷日期")
+        if not _FILE_NAME.fullmatch(exam_id):
+            raise ValueError("非法模拟卷编号")
+        directory = self._contained(
+            self._knowledge_root / "模拟试卷" / str(year) / str(month).zfill(2) / exam_id
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        return self._contained(directory)
+
     def safe_file_path(self, subject: str, folder: str, filename: str) -> Path:
         """Resolve a validated filename in one fixed subject subdirectory."""
         tree = self.ensure_subject_tree(subject)
