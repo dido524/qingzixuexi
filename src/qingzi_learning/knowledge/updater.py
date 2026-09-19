@@ -59,3 +59,6 @@ class KnowledgeUpdater:
             document_id, question_id, final_status, corrected_answer, note,
             expected_version=expected_version, now=self._now())
         return UpdateSummary(document_id, subject, points)
+
+    def confirm_correct_batch(self, identities: tuple[tuple[str, str, str], ...]) -> tuple[str, ...]:
+        return self.repo.confirm_correct_batch(identities, now=self._now())

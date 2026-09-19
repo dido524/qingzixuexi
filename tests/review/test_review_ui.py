@@ -116,6 +116,64 @@ def test_review_worker_scopes_split_batch_to_its_children(repo):
         worker.request_shutdown(); worker.join(timeout=10)
 
 
+def test_bulk_review_worker_rejects_outside_scope_and_incorrect_items(repo):
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    seed(repo, ("correct", "incorrect"), document_id="current")
+    seed(repo, ("correct",), document_id="other")
+    worker = WorkflowWorker(repo.config, lambda: WorkflowController(
+        repo.config, object(), KnowledgeRepository(repo.config)), camera_factory=camera_unavailable)
+    worker.start()
+    try:
+        listed = take_operation(worker, worker.submit(
+            "list_reviews", review_scope_id="current", context="review_job", dialog_id="batch"))
+        assert [item.question_id for item in listed.review_items] == ["1", "2"]
+        wrong = listed.review_items[1]
+        rejected = take_operation(worker, worker.submit(
+            "confirm_correct_batch", review_scope_id="current", context="review_job", dialog_id="batch",
+            batch_reviews=((wrong.document_id, wrong.question_id, wrong.version),)))
+        assert rejected.kind == "review_conflict"
+        assert not repo.review_history("current", "2")
+        outside = repo.review_question("other", "1")
+        rejected = take_operation(worker, worker.submit(
+            "confirm_correct_batch", review_scope_id="current", context="review_job", dialog_id="batch",
+            batch_reviews=(("other", "1", outside["version"]),)))
+        assert rejected.kind == "review_conflict"
+        correct = listed.review_items[0]
+        saved = take_operation(worker, worker.submit(
+            "confirm_correct_batch", review_scope_id="current", context="review_job", dialog_id="batch",
+            batch_reviews=((correct.document_id, correct.question_id, correct.version),)))
+        assert saved.kind == "review_saved"
+        assert [item.question_id for item in saved.review_items] == ["2"]
+        assert not repo.review_history("other", "1")
+    finally:
+        worker.request_shutdown(); worker.join(timeout=10)
+
+
+def test_bulk_review_worker_warns_when_export_remains_pending(repo):
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    seed(repo, ("correct",), document_id="current")
+    def factory():
+        controller = WorkflowController(repo.config, object(), KnowledgeRepository(repo.config))
+        def fail_export(_document_id):
+            raise OSError("simulated export failure")
+        controller.review.markdown.export_document = fail_export
+        return controller
+    worker = WorkflowWorker(repo.config, factory, camera_factory=camera_unavailable)
+    worker.start()
+    try:
+        listed = take_operation(worker, worker.submit(
+            "list_reviews", review_scope_id="current", context="review_job", dialog_id="batch"))
+        item = listed.review_items[0]
+        saved = take_operation(worker, worker.submit(
+            "confirm_correct_batch", review_scope_id="current", context="review_job", dialog_id="batch",
+            batch_reviews=((item.document_id, item.question_id, item.version),)))
+        assert saved.kind == "review_saved"
+        assert "页面更新未完成" in saved.message
+        assert repo.get_job("current").payload["export_pending"]
+    finally:
+        worker.request_shutdown(); worker.join(timeout=10)
+
+
 def test_restart_surfaces_latest_legacy_all_correct_capture_for_review(repo, monkeypatch):
     seed(repo, ("needs_review",), document_id="old")
     seed(repo, ("correct", "correct"), document_id="latest")
@@ -212,8 +270,9 @@ def test_review_dialog_shows_evidence_requires_choice_and_advances(review_app):
     app.open_reviews(); deliver(app)
     dialog = app._review_dialog
     assert dialog.item.question_id == "1"
-    assert "学生原答案" in dialog.evidence_var.get() and "0.60" in dialog.evidence_var.get()
-    assert "系统原理由" in dialog.evidence_var.get() and "needs_review" in dialog.evidence_var.get()
+    assert dialog.detail_vars["student_answer"].get() == "学生原答案"
+    assert dialog.detail_vars["reason"].get() == "系统原理由"
+    assert dialog.detail_vars["confidence"].get() == "60%"
     dialog.save_button.invoke()
     assert not app.vm.busy and "选择" in dialog.message_var.get()
     dialog.status_var.set("incorrect")
@@ -225,6 +284,82 @@ def test_review_dialog_shows_evidence_requires_choice_and_advances(review_app):
     assert saved.kind == "review_saved"
     assert dialog.item.question_id == "2"
     assert not app.vm.busy and dialog.status_var.get() == ""
+
+
+def test_review_dialog_keeps_actions_visible_in_short_window_and_formats_evidence(review_app):
+    app = review_app
+    app.open_reviews(); deliver(app)
+    dialog = app._review_dialog
+    app.root.deiconify()
+    dialog.window.geometry("680x480")
+    dialog.window.update()
+    assert dialog.save_button.winfo_ismapped()
+    assert dialog.action_bar.winfo_y() + dialog.action_bar.winfo_height() <= dialog.window.winfo_height()
+    assert dialog.preview.winfo_reqwidth() <= dialog.canvas.winfo_width()
+    assert dialog.detail_vars["student_answer"].get() == "学生原答案"
+    assert dialog.detail_vars["reference_answer"].get() == "参考原答案"
+    assert dialog.detail_vars["reason"].get() == "系统原理由"
+    assert dialog.detail_vars["confidence"].get() == "60%"
+
+
+def test_review_actions_do_not_clip_at_high_dpi(review_app):
+    app = review_app
+    original = float(app.root.tk.call("tk", "scaling"))
+    try:
+        app.root.tk.call("tk", "scaling", 4.0)
+        app.root.deiconify()
+        app.open_reviews(); deliver(app)
+        dialog = app._review_dialog
+        dialog.window.geometry("680x480")
+        dialog.window.update()
+        for button in (dialog.save_button, dialog.batch_button):
+            assert button.winfo_width() >= button.winfo_reqwidth()
+            assert button.winfo_rootx() + button.winfo_width() <= dialog.window.winfo_rootx() + dialog.window.winfo_width()
+            assert button.winfo_rooty() + button.winfo_height() <= dialog.window.winfo_rooty() + dialog.window.winfo_height()
+    finally:
+        app.root.tk.call("tk", "scaling", original)
+
+
+def test_review_evidence_scrolls_with_mouse_wheel(review_app):
+    app = review_app
+    app.root.deiconify()
+    app.open_reviews(); deliver(app)
+    dialog = app._review_dialog
+    dialog.window.geometry("680x480")
+    dialog.window.update()
+    assert dialog.canvas.yview()[1] < 1.0
+    dialog.window.event_generate("<MouseWheel>", delta=-120)
+    dialog.window.update()
+    assert dialog.canvas.yview()[0] > 0
+
+
+def test_review_dialog_batches_model_correct_but_not_wrong_or_teacher(review_app, repo, monkeypatch):
+    app = review_app
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    seed(repo, ("correct", "incorrect", "correct"), document_id="batch")
+    app.vm.session_id = "batch"; app.vm.sealed = True
+    app.open_reviews(); deliver(app)
+    dialog = app._review_dialog
+    assert dialog.batch_button.cget("state") == "normal"
+    assert "1" in dialog.batch_button.cget("text")
+    monkeypatch.setattr("qingzi_learning.ui.review_dialog.messagebox.askyesno", lambda *a, **kw: True)
+    dialog.batch_button.invoke()
+    assert app.vm.busy
+    saved = deliver(app)
+    assert saved.kind == "review_saved"
+    assert [q.question_id for q in dialog.items] == ["2"]
+
+
+def test_cancel_batch_confirmation_keeps_all_questions_pending(review_app, repo, monkeypatch):
+    app = review_app
+    seed(repo, ("correct", "correct"), document_id="batch")
+    app.vm.session_id = "batch"; app.vm.sealed = True
+    app.open_reviews(); deliver(app)
+    monkeypatch.setattr("qingzi_learning.ui.review_dialog.messagebox.askyesno", lambda *a, **kw: False)
+    app._review_dialog.batch_button.invoke()
+    assert not app.vm.busy
+    assert [q.question_id for q in app._review_dialog.items] == ["1", "2"]
+    assert not repo.review_history("batch", "1")
 
 
 def test_closed_dialog_callback_cannot_submit_review_to_new_dialog(review_app):

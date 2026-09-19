@@ -145,6 +145,70 @@ def test_scoped_review_includes_legacy_unconfirmed_correct_without_other_documen
     ]
 
 
+def test_batch_correct_confirms_only_model_correct_with_one_atomic_update(repo):
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    seed(repo, ("correct", "incorrect", "correct", "correct"), document_id="new")
+    seed(repo, ("correct",), document_id="outside")
+    pending = service(repo).list_pending(("new",))
+    selected = tuple((q.document_id, q.question_id, q.version) for q in pending
+                     if q.original_status == "correct" and q.original_decision_source == "model")
+    assert [identity[1] for identity in selected] == ["1", "4"]
+    service(repo).confirm_correct_batch(selected)
+    assert [q.question_id for q in service(repo).list_pending(("new",))] == ["2"]
+    assert [q.question_id for q in service(repo).list_pending(("outside",))] == ["1"]
+    assert repo.get_document("new")["questions"][2]["decision_source"] == "teacher"
+    assert [q["status"] for q in repo.get_document("new")["questions"]] == [
+        "correct", "needs_review", "correct", "correct"
+    ]
+    assert len(service(repo).history("new", "1")) == 1
+    assert len(service(repo).history("new", "4")) == 1
+
+
+def test_batch_correct_rejects_stale_item_without_confirming_others(repo):
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    seed(repo, ("correct", "correct"), document_id="new")
+    pending = service(repo).list_pending(("new",))
+    identities = tuple((q.document_id, q.question_id, q.version) for q in pending)
+    service(repo).confirm_question("new", "2", "incorrect", "更正", "人工改判",
+                                   expected_version=pending[1].version)
+    with pytest.raises(ValueError):
+        service(repo).confirm_correct_batch(identities)
+    assert not service(repo).history("new", "1")
+    assert repo.get_document("new")["questions"][0]["status"] == "needs_review"
+
+
+@pytest.mark.parametrize("both_children", [False, True])
+def test_split_batch_export_failure_reports_pending_and_recovers(mixed_setup, monkeypatch, both_children):
+    controller = controller_for(mixed_setup)
+    _, repo, analyzer, session = mixed_setup
+    if both_children:
+        original_analyze = analyzer.analyze
+        def two_subject_questions(document):
+            result = original_analyze(document)
+            english = replace(result.questions[0], question_id="english-1", page=4)
+            return replace(result, questions=(*result.questions, english))
+        monkeypatch.setattr(analyzer, "analyze", two_subject_questions)
+    outcome = _confirm_mixed(controller, session)
+    pending = controller.review.list_pending(outcome.child_document_ids)
+    assert len(pending) == (2 if both_children else 1)
+    identities = tuple((item.document_id, item.question_id, item.version) for item in pending)
+    failed_child = pending[0].document_id
+    export = controller.review.markdown.export_document
+    def fail_one(document_id):
+        if document_id == failed_child:
+            raise OSError("simulated export failure")
+        return export(document_id)
+    monkeypatch.setattr(controller.review.markdown, "export_document", fail_one)
+    documents, published = controller.review.confirm_correct_batch(identities)
+    assert set(documents) == {item.document_id for item in pending}
+    assert not published
+    assert repo.get_job(failed_child).payload["export_pending"]
+    assert repo.get_job(outcome.job_id).state == "pending"
+    monkeypatch.setattr(controller.review.markdown, "export_document", export)
+    assert controller.retry_pending(outcome.job_id).state == "completed"
+    assert controller.review.pending_publications() == ()
+
+
 def test_review_changes_mastery_and_exports_but_preserves_original_evidence(repo):
     original = seed(repo)
     svc = service(repo)

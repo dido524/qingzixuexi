@@ -1128,6 +1128,56 @@ class KnowledgeRepository:
             self.connection.execute("UPDATE documents SET updated_at=CURRENT_TIMESTAMP WHERE document_id=?", (document_id,))
             return item["subject"], points
 
+    def confirm_correct_batch(self, identities: tuple[tuple[str, str, str], ...], *, now: datetime) -> tuple[str, ...]:
+        """Confirm exactly the displayed, still-unreviewed model-correct questions atomically."""
+        if not identities or len(set(identities)) != len(identities):
+            raise ValueError("待批量确认的题目无效")
+        with self.connection:
+            self.connection.execute("BEGIN IMMEDIATE")
+            items = []
+            for document_id, question_id, expected_version in identities:
+                if not all(isinstance(value, str) and value for value in (document_id, question_id, expected_version)):
+                    raise ValueError("待批量确认的题目无效")
+                item = self.review_question(document_id, question_id)
+                workflow = self.get_job(document_id)
+                if (item["version"] != expected_version or item["status"] not in {"needs_review", "correct"}
+                        or item["original_status"] != "correct"
+                        or item["original_decision_source"] != "model"
+                        or item["review_revision"] != 0 or self.connection.execute(
+                            "SELECT 1 FROM parent_reviews WHERE document_id=? AND question_id=?",
+                            (document_id, question_id)).fetchone()
+                        or (workflow and (not workflow.knowledge_applied or workflow.state not in
+                                          {"needs_review", "completed", "pending"}))):
+                    raise ValueError("题目已变化，请重新打开复核窗口")
+                items.append(item)
+            confirmed_at = now.isoformat()
+            affected = set()
+            documents = set()
+            for item in items:
+                document_id, question_id = item["document_id"], item["question_id"]
+                self.connection.execute(
+                    "INSERT INTO parent_reviews VALUES (?, ?, 'correct', '', '', 1, ?)",
+                    (document_id, question_id, confirmed_at))
+                self.connection.execute(
+                    """INSERT INTO review_audit(document_id, question_id, revision, original_json,
+                    before_json, after_json, confirmed_at) VALUES (?, ?, 1, ?, ?, ?, ?)""",
+                    (document_id, question_id, self._json(item["original"]),
+                     self._json({"status": item["status"], "decision_source": item["decision_source"]}),
+                     self._json({"final_status": "correct", "corrected_answer": "", "note": "",
+                                 "decision_source": "parent"}), confirmed_at))
+                affected.update((item["subject"], point) for point in item["knowledge_points"])
+                documents.add(document_id)
+            for subject, point in sorted(affected):
+                self._recompute_knowledge_stat(subject, point, now)
+            for document_id in sorted(documents):
+                self.connection.execute(
+                    """INSERT INTO review_publications(document_id) VALUES (?) ON CONFLICT(document_id)
+                    DO UPDATE SET revision=review_publications.revision+1, pending=1""", (document_id,))
+                self._set_review_job_state(document_id, "pending", True)
+                self.connection.execute(
+                    "UPDATE documents SET updated_at=CURRENT_TIMESTAMP WHERE document_id=?", (document_id,))
+            return tuple(sorted(documents))
+
     def pending_review_publications(self) -> tuple[str, ...]:
         return tuple(r[0] for r in self.connection.execute(
             "SELECT document_id FROM review_publications WHERE pending=1 ORDER BY document_id"))

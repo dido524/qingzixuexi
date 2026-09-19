@@ -94,7 +94,7 @@ class UiEvent:
 
 @dataclass(frozen=True)
 class _Command:
-    kind: Literal["capture", "retake", "retake_page", "next", "finish", "new_capture", "confirm_subject", "confirm_page_subject", "retry", "recover", "resume_capture", "list_reviews", "confirm_review", "list_reports", "generate_report", "list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam", "stop"]
+    kind: Literal["capture", "retake", "retake_page", "next", "finish", "new_capture", "confirm_subject", "confirm_page_subject", "retry", "recover", "resume_capture", "list_reviews", "confirm_review", "confirm_correct_batch", "list_reports", "generate_report", "list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam", "stop"]
     operation_id: str
     job_id: str | None = None
     subject: str | None = None
@@ -112,6 +112,7 @@ class _Command:
     exam_id: str | None = None
     expected_revision: int | None = None
     review_scope_id: str | None = None
+    batch_reviews: tuple[tuple[str, str, str], ...] = ()
 
 
 class WorkflowWorker(threading.Thread):
@@ -136,7 +137,8 @@ class WorkflowWorker(threading.Thread):
     def submit(self, kind, *, job_id=None, subject=None, page_number=None, context="active_capture",
                session_generation=None, session_id=None, dialog_id=None, question_id=None,
                final_status=None, corrected_answer="", note="", expected_version=None,
-                exam_request=None, exam_id=None, expected_revision=None, review_scope_id=None) -> str:
+                exam_request=None, exam_id=None, expected_revision=None, review_scope_id=None,
+               batch_reviews=()) -> str:
         operation_id = uuid4().hex
         if kind == "resume_capture":
             generation = session_generation or uuid4().hex
@@ -152,7 +154,7 @@ class WorkflowWorker(threading.Thread):
         self._commands.put(_Command(kind, operation_id, job_id, subject, page_number, context,
                                     generation, identity, dialog_id, question_id, final_status,
                                     corrected_answer, note, expected_version, exam_request,
-                                     exam_id, expected_revision, review_scope_id))
+                                     exam_id, expected_revision, review_scope_id, tuple(batch_reviews)))
         return operation_id
 
     def request_shutdown(self) -> None:
@@ -214,7 +216,7 @@ class WorkflowWorker(threading.Thread):
                 self._emit(self._command_event(command, "workflow_outcome", outcome=outcome, completion=self._completion(outcome), context="recovered_job"))
             elif command.kind == "recover": self._recover()
             elif command.kind == "resume_capture": self._resume(command)
-            elif command.kind in {"list_reviews", "confirm_review"}: self._review(command)
+            elif command.kind in {"list_reviews", "confirm_review", "confirm_correct_batch"}: self._review(command)
             elif command.kind in {"list_reports", "generate_report"}: self._reports(command)
             elif command.kind in {"list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam"}: self._exams(command)
         except CameraNotFound:
@@ -253,9 +255,21 @@ class WorkflowWorker(threading.Thread):
         if command.kind == "list_reviews":
             self._emit(self._command_event(command, "review_list", review_items=service.list_pending(document_ids)))
             return
+        published = True
         try:
-            service.confirm_question(command.job_id, command.question_id, command.final_status,
-                                     command.corrected_answer, command.note, expected_version=command.expected_version)
+            if command.kind == "confirm_correct_batch":
+                if scope is None or not command.batch_reviews:
+                    raise ValueError("批量确认需要指定本次资料")
+                pending = service.list_pending(document_ids)
+                eligible = {(item.document_id, item.question_id, item.version) for item in pending
+                            if item.original_status == "correct" and item.original_decision_source == "model"
+                            and item.status in {"correct", "needs_review"}}
+                if len(set(command.batch_reviews)) != len(command.batch_reviews) or not set(command.batch_reviews) <= eligible:
+                    raise ValueError("题目已变化")
+                _, published = service.confirm_correct_batch(command.batch_reviews)
+            else:
+                service.confirm_question(command.job_id, command.question_id, command.final_status,
+                                         command.corrected_answer, command.note, expected_version=command.expected_version)
         except ValueError:
             # Reload actual pending facts; arbitrary exception text is not shown.
             self._emit(self._command_event(command, "review_conflict", review_items=service.list_pending(document_ids),
@@ -263,7 +277,10 @@ class WorkflowWorker(threading.Thread):
             return
         job = self._controller.repo.get_job(scope or command.job_id)
         outcome = self._controller._outcome(job)
-        message = "复核已保存，知识库已更新。" if not job.payload.get("export_pending") else "复核已保存，页面更新未完成，请在恢复任务中重试。"
+        message = ((f"已确认 {len(command.batch_reviews)} 道正确题，知识库已更新。"
+                    if command.kind == "confirm_correct_batch" else "复核已保存，知识库已更新。")
+                   if published and not job.payload.get("export_pending")
+                   else "复核已保存，页面更新未完成，请在恢复任务中重试。")
         self._emit(self._command_event(command, "review_saved", outcome=outcome, completion=self._completion(outcome),
                                        review_items=service.list_pending(document_ids), message=message))
 
@@ -913,7 +930,9 @@ class LearningAssistantApp:
         selected = self._selected_recovery()
         self._review_scope_id = (selected.outcome.job_id if selected and selected.outcome else
                                  self.vm.session_id if self.vm.sealed else None)
-        self._review_dialog = ReviewDialog(self.root, identity, self._save_review, self.close_reviews, self._open_path)
+        self._review_dialog = ReviewDialog(self.root, identity, self._save_review, self.close_reviews,
+                                           self._open_path, on_batch=self._batch_confirm_correct,
+                                           allow_batch=self._review_scope_id is not None)
         self._submit("list_reviews", "正在读取待确认题目…", context="review_job", dialog_id=identity,
                      review_scope_id=self._review_scope_id)
 
@@ -980,6 +999,14 @@ class LearningAssistantApp:
                             job_id=item.document_id, question_id=item.question_id, final_status=final_status,
                             corrected_answer=corrected_answer, note=note, expected_version=item.version,
                             review_scope_id=self._review_scope_id)
+
+    def _batch_confirm_correct(self, dialog_id, items):
+        if dialog_id != self.vm.review_dialog_id or self._review_dialog is None or self._review_scope_id is None:
+            return False
+        identities = tuple((item.document_id, item.question_id, item.version) for item in items)
+        return self._submit("confirm_correct_batch", "正在保存正确题…", context="review_job",
+                            dialog_id=dialog_id, review_scope_id=self._review_scope_id,
+                            batch_reviews=identities)
 
     def close_reviews(self, dialog_id):
         if self.vm.review_dialog_id != dialog_id:

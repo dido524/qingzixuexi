@@ -63,6 +63,21 @@ class ReviewService:
         self.retry_publication(document_id)
         return summary
 
+    def confirm_correct_batch(self, identities: tuple[tuple[str, str, str], ...]) -> tuple[tuple[str, ...], bool]:
+        documents = self.updater.confirm_correct_batch(identities)
+        published = True
+        failed_children = []
+        for document_id in documents:
+            if not self.retry_publication(document_id):
+                published = False
+                failed_children.append(document_id)
+        if failed_children:
+            with self.repo.connection:
+                self.repo.connection.execute("BEGIN IMMEDIATE")
+                for document_id in failed_children:
+                    self._refresh_split_parent(document_id, None)
+        return documents, published
+
     def pending_publications(self) -> tuple[str, ...]:
         return self.repo.pending_review_publications()
 
@@ -103,7 +118,7 @@ class ReviewService:
                 pass  # Authoritative SQLite outbox still records exactly what to retry.
             return False
 
-    def _refresh_split_parent(self, document_id: str, dashboard_path: str) -> None:
+    def _refresh_split_parent(self, document_id: str, dashboard_path: str | None) -> None:
         """Update orchestration only, inside the child's publication transaction.
 
         Split parents have no document/processing row, so this aggregate does not
@@ -125,9 +140,10 @@ class ReviewService:
                 self.repo._write_workflow_job(replace(parent, state="pending"))
             if state != "pending":
                 self.repo._write_workflow_job(replace(parent, state="analyzing"))
-        self.repo._write_workflow_job(replace(parent, state=state, payload=dict(
-            parent.payload, dashboard_path=dashboard_path,
-        )))
+        payload = dict(parent.payload)
+        if dashboard_path is not None:
+            payload["dashboard_path"] = dashboard_path
+        self.repo._write_workflow_job(replace(parent, state=state, payload=payload))
         self._mirror(parent.job_id)
 
     def _mirror(self, document_id: str) -> None:
