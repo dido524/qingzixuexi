@@ -4,7 +4,7 @@
 在不削弱现有本地校验、家长确认和知识库安全边界的前提下，为晴子学习助手提供原生 Codex 与 DeepSeek 两种模型选择，并向用户暴露可安全保存的 DeepSeek API 配置界面。
 
 ## Current Phase
-Phase 9: Verification & Delivery
+Complete
 
 ## Phases
 
@@ -59,8 +59,8 @@ Phase 9: Verification & Delivery
 ### Phase 9: Verification & Delivery
 - [x] Run focused provider/config/UI tests and the full regression suite
 - [x] Build, back up the database, install, preserve the custom icon, and smoke-test
-- [ ] Commit and push the verified source tree to GitHub main
-- **Status:** pending
+- [x] Commit and push the verified source tree to GitHub main
+- **Status:** complete
 
 ## Key Questions
 1. How does the current model schema represent OCR text, question status, and page identity?

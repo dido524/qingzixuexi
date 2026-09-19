@@ -104,4 +104,4 @@
 - [x] Implement sanitized mappings and smoke-check behavior that requires Codex only when Codex is selected.
 - [x] Run the complete pytest suite and `git diff --check`.
 - [x] Build with `scripts/build.ps1 -SkipTests`, back up the database, install, restore the custom icon, and run installed `--smoke-check`.
-- [ ] Commit, push the exact verified tree to GitHub main, and record the commit and backup path.
+- [x] Commit, push the exact verified tree to GitHub main, and record the commit and backup path.

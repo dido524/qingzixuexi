@@ -92,6 +92,7 @@
 - Installed EXE: `C:\Users\Home\Documents\QingziLearningAssistant\app\晴子学习助手.exe`, version `0.1.0`; installed smoke check exited `0`.
 - Desktop shortcut target/working directory were verified and the custom `qingzi-photo.ico` icon was restored.
 - The Microsoft Store Python interpreter virtualizes direct AppData access, so real-user database verification used closed-file/no-WAL state plus byte-identical SHA-256 rather than opening the live path through that interpreter.
+- GitHub `main` received the exact verified code tree in commit `894a49b260997a19f68ee3949e55263d2b1d8490` (tree `83e939ac92e3c5a81468656e571821e156617fc5`).
 
 ## Delivery Error Log Additions
 | Timestamp | Error | Attempt | Resolution |
