@@ -68,3 +68,13 @@
 - API keys must be restricted to printable non-whitespace ASCII and transport exceptions must be converted to safe application codes so header-validation errors cannot echo secrets.
 - ctypes defaults are not pointer-safe for `LocalFree` on 64-bit Windows. CryptProtectData, CryptUnprotectData, and LocalFree require explicit `argtypes` and `restype`; Microsoft requires DPAPI output buffers to be released with LocalFree.
 - The installed Microsoft Store Python interpreter virtualizes some direct AppData access. User-database backup checks must therefore rely on the actual Windows filesystem view (application closed, no WAL/SHM, matching file hash) rather than opening that path through the Store interpreter.
+
+## DeepSeek Real-Homework Failure Findings (2026-09-19)
+- The screenshot text is the UI mapping for `invalid_deepseek_response`, which can arise from DeepSeek envelope/JSON parsing or any strict analysis schema/domain/binding check. It does not by itself identify the failing field.
+- The two most recent sessions (`capture-b45a2d1b46ac43feb8225fb5523d9906`, `capture-8185132faed547f6ad39b04c0446c128`) both have one page and `invalid_deepseek_response` in `analysis_state.json`.
+- Their source JPGs were archived intact into the English subject's `待处理` folders; the spool directories intentionally retain only metadata after failed-analysis archival.
+- The earlier live test covered only a tiny JSON answer and a synthetic digit image, not the complete homework response contract.
+- A privacy-safe one-request replay of the latest archived page returned syntactically valid JSON with 11 questions, but had an unexpected top-level `grade` and omitted several required top-level fields. The local failure was `additionalProperties` at the root.
+- Root cause: `DeepSeekAnalyzer` sent the Codex analysis prompt, which says to follow the “provided JSON Schema”, but `DeepSeekClient` sent only `response_format: json_object`; the actual schema was never provided to DeepSeek. Codex receives it out of band through `--output-schema`, which hid this mismatch during unit tests.
+- A second read-only replay of the same archived page, appending the packaged `analysis-transport.schema.json` to the DeepSeek prompt, returned all required top-level fields and passed both `_from_payload` and `validate_result` with `require_answer_bbox=True`. No knowledge-base write was performed.
+- DeepSeek's official JSON Output guide confirms `json_object` guarantees syntactic JSON only and recommends an explicit output example/contract in the prompt; the Chat Completions API does not document `json_schema` response_format at this endpoint. Keep the local validator authoritative.

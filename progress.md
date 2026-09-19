@@ -98,3 +98,17 @@
 | Timestamp | Error | Attempt | Resolution |
 |-----------|-------|---------|------------|
 | 2026-09-19 | Store Python could not open the real AppData SQLite path and reported a virtualized size | 1 | Stopped using that interpreter for real user-data inspection; verified the closed source and copied backup by PowerShell SHA-256 with no WAL/SHM present |
+
+## Session: 2026-09-19 — DeepSeek Real-Homework Response Failure
+- Screenshot shows the application mapping `invalid_deepseek_response` to “DeepSeek 返回的分析格式不完整，资料已保留，请重试”.
+- Earlier live checks proved text JSON and a synthetic digit image worked; they did not exercise the full homework schema.
+- Current phase: locate the exact schema/domain failure, reproduce safely, then test and repair.
+- Located the two latest failed English one-page sessions; verified their original images remain in `英语/待处理` and no DeepSeek raw response is currently stored.
+- Replayed the latest archived image once with the current DeepSeek request: 11 questions returned, but root schema failed on unexpected `grade` and missing required fields.
+- Replayed the same image once with the packaged transport schema explicitly appended: 11 questions returned, full schema and domain validation passed.
+- Root cause confirmed at the prompt-to-provider boundary; next: test-first single-point repair in `DeepSeekAnalyzer`.
+- Added a regression assertion that the complete packaged analysis transport schema is present in DeepSeek's request. It failed on the old behavior, then passed after the focused analyzer patch.
+- Full suite on the patched tree: `668 passed, 1 skipped in 424.83s`.
+- Real `DeepSeekAnalyzer.analyze` on the same archived image: one page, 11 questions, all answer bounding boxes present; no repository/database call.
+- Closed app confirmed before backup/install. Database backup: `C:\Users\Home\AppData\Local\QingziLearningAssistant\backups\knowledge-before-deepseek-schema-fix-20260919-103631.sqlite3`; source and copy SHA-256 both `712F7F72C4F973DB5D6DC7E2645D562412332ED06F800F7701145611FFF3002F`.
+- Rebuilt PyInstaller package, installed into the existing `C:\Users\Home\Documents\QingziLearningAssistant\app`, restored custom desktop icon, and confirmed installed `--smoke-check` exit `0`.

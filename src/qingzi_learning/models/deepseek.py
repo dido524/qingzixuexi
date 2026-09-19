@@ -143,8 +143,11 @@ class DeepSeekAnalyzer:
     def analyze(self, document: CapturedDocument) -> AnalysisResult:
         _validate_pages(document)
         try:
+            schema = (
+                files("qingzi_learning.schema") / "analysis-transport.schema.json"
+            ).read_text("utf-8")
             payload = self.client.complete_json(
-                analysis_prompt(document),
+                analysis_prompt(document) + "\n必须严格遵守以下完整 JSON Schema：\n" + schema,
                 images=tuple(page.path.resolve() for page in document.pages),
                 reasoning_effort="low",
             )

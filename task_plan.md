@@ -4,7 +4,7 @@
 在不削弱现有本地校验、家长确认和知识库安全边界的前提下，为晴子学习助手提供原生 Codex 与 DeepSeek 两种模型选择，并向用户暴露可安全保存的 DeepSeek API 配置界面。
 
 ## Current Phase
-Complete
+Phase 10: DeepSeek real-homework response diagnosis
 
 ## Phases
 
@@ -62,6 +62,13 @@ Complete
 - [x] Commit and push the verified source tree to GitHub main
 - **Status:** complete
 
+### Phase 10: DeepSeek Real-Homework Response Diagnosis
+- [x] Locate the failed session and capture a safe validation-error category without exposing student content or the API key
+- [x] Reproduce the contract mismatch against the existing captured evidence without changing the knowledge base
+- [x] Add a failing regression test, implement the smallest fix, and verify it
+- [ ] Rebuild/install safely, test the installed app, and push the fix to GitHub
+- **Status:** in_progress
+
 ## Key Questions
 1. How does the current model schema represent OCR text, question status, and page identity?
 2. Where can confirmation gate knowledge publication without duplicating review state?
@@ -91,6 +98,8 @@ Complete
 | Repository has no `requirements.txt` | 1 | Use `pyproject.toml` and `requirements-build.txt` as the dependency sources |
 | PowerShell parsed a quoted regex as code in a combined security-check command | 1 | Split the checks into separate commands with simple quoting |
 | Full pytest run hit a native access violation at 96% | 1 | Traced it to pointer-width-unsafe ctypes defaults; declared exact DPAPI and LocalFree ABIs, then passed 1,000-cycle stress/Tk and full regression |
+| Focused regression command could not import source package because the worktree virtual environment does not install this worktree editable by default | 1 | Rerun with `PYTHONPATH=src` before interpreting the test result |
+| A compound PowerShell install command exited immediately after the installer, before restoring the custom icon | 1 | Restored icon in a separate command and verified shortcut target/icon and installed smoke check |
 
 ## Notes
 - The user previously authorized implementation without plan-by-plan confirmation; proceed after design self-review.

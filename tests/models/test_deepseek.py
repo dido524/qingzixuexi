@@ -1,4 +1,5 @@
 from hashlib import sha256
+from importlib.resources import files
 import json
 from pathlib import Path
 
@@ -142,7 +143,12 @@ def test_analyzer_reuses_strict_local_analysis_contract(tmp_path):
 
     assert result.subject.value == "数学"
     assert result.questions[0].status.value == "incorrect"
-    assert "answer_bbox" in transport.calls[0][2]["messages"][0]["content"][0]["text"]
+    analysis_text = transport.calls[0][2]["messages"][0]["content"][0]["text"]
+    assert "answer_bbox" in analysis_text
+    schema_text = (
+        files("qingzi_learning.schema") / "analysis-transport.schema.json"
+    ).read_text("utf-8")
+    assert schema_text in analysis_text
 
 
 def test_narrative_and_exam_adapters_validate_the_same_schemas(tmp_path):
