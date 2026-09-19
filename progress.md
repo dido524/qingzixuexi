@@ -112,3 +112,5 @@
 - Real `DeepSeekAnalyzer.analyze` on the same archived image: one page, 11 questions, all answer bounding boxes present; no repository/database call.
 - Closed app confirmed before backup/install. Database backup: `C:\Users\Home\AppData\Local\QingziLearningAssistant\backups\knowledge-before-deepseek-schema-fix-20260919-103631.sqlite3`; source and copy SHA-256 both `712F7F72C4F973DB5D6DC7E2645D562412332ED06F800F7701145611FFF3002F`.
 - Rebuilt PyInstaller package, installed into the existing `C:\Users\Home\Documents\QingziLearningAssistant\app`, restored custom desktop icon, and confirmed installed `--smoke-check` exit `0`.
+- Independent read-only review found no blocking issue; it noted that single-page live validation cannot prove all future/multi-page outputs conform.
+- Pushed the verified repair commit `0aa77f4988b6667c9d30b0e628e6ff8c29c98254` to GitHub `main` by fast-forward.

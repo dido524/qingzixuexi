@@ -4,7 +4,7 @@
 在不削弱现有本地校验、家长确认和知识库安全边界的前提下，为晴子学习助手提供原生 Codex 与 DeepSeek 两种模型选择，并向用户暴露可安全保存的 DeepSeek API 配置界面。
 
 ## Current Phase
-Phase 10: DeepSeek real-homework response diagnosis
+Complete
 
 ## Phases
 
@@ -66,8 +66,8 @@ Phase 10: DeepSeek real-homework response diagnosis
 - [x] Locate the failed session and capture a safe validation-error category without exposing student content or the API key
 - [x] Reproduce the contract mismatch against the existing captured evidence without changing the knowledge base
 - [x] Add a failing regression test, implement the smallest fix, and verify it
-- [ ] Rebuild/install safely, test the installed app, and push the fix to GitHub
-- **Status:** in_progress
+- [x] Rebuild/install safely, test the installed app, and push the fix to GitHub
+- **Status:** complete
 
 ## Key Questions
 1. How does the current model schema represent OCR text, question status, and page identity?
