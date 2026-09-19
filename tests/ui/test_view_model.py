@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import gc
 import os
 from pathlib import Path
 import queue
@@ -518,20 +519,27 @@ def test_root_and_page_dialog_focus_bindings_stop_flash_without_rearming_same_st
     assert notifier.flashes == [42]
 
 
-def test_open_dashboard_uses_injected_local_path_hook(config):
-    dashboard = config.knowledge_root / "知识库首页.html"
-    dashboard.parent.mkdir(parents=True)
-    dashboard.write_text("<html></html>", encoding="utf-8")
-    opened = []
+def test_open_dashboard_requests_fresh_page_before_opening(config):
+    submitted = []
     app = object.__new__(LearningAssistantApp)
     app.config = config
     app.vm = CaptureViewModel()
-    app._open_path = opened.append
-    app._refresh = lambda: None
+    app._submit = lambda *args, **kwargs: submitted.append((args, kwargs))
 
     app.open_dashboard()
 
-    assert opened == [dashboard]
+    assert submitted[0][0][0] == "open_dashboard"
+    assert submitted[0][1]["context"] == "dashboard"
+
+
+def test_dashboard_ready_event_accepts_only_own_operation(config):
+    vm = CaptureViewModel()
+    vm.begin_work("正在更新首页", "own")
+    assert not vm.apply_event(UiEvent("dashboard_ready", operation_id="old", context="dashboard"))
+    assert vm.apply_event(UiEvent("dashboard_ready", operation_id="own", context="dashboard",
+                                  page_path=config.knowledge_root / "知识库首页.html"))
+    assert not vm.busy
+    assert vm.status == "知识库总览已更新。"
 
 
 @dataclass
@@ -741,6 +749,8 @@ def test_completed_capture_can_reset_for_a_new_document_without_losing_history(v
 
 
 def test_worker_new_capture_discards_finished_session_and_uses_a_fresh_one(config):
+    # Dispose pending Tk variables on the main thread before starting the worker.
+    gc.collect()
     events: queue.Queue[UiEvent] = queue.Queue()
     sessions = []
 
@@ -1561,3 +1571,26 @@ def test_matching_failed_resume_reports_error_and_restores_actions_without_adopt
     assert app.buttons["retry"].cget("state") == "normal"
     assert (app.vm.session_generation, app.vm.session_id, app.vm.page_number, app.vm.page_paths,
             app.vm.selected_page_number, app.vm.frozen_preview_jpeg, app.vm.sealed, app.vm.completion) == before
+
+
+def test_dashboard_ready_event_opens_newly_exported_homepage(config):
+    app = object.__new__(LearningAssistantApp)
+    app.worker = type("EventQueues", (), {"events": queue.Queue(), "preview_events": queue.Queue()})()
+    app.vm = CaptureViewModel()
+    app._poll_after_id = None
+    app._review_dialog = None
+    app._learning_center = None
+    app._page_subject_dialog = None
+    app._stop_taskbar_flash = lambda: None
+    app._close_page_subject_dialog = lambda: None
+    app._show_next_recovered_page_subject = lambda: None
+    app._refresh = lambda: None
+    app._schedule_poll = lambda: None
+    opened = []
+    app._open_path = opened.append
+    destination = config.knowledge_root / "知识库首页.html"
+    app.vm.begin_work("正在更新首页", "dashboard-op")
+    app.worker.events.put(UiEvent("dashboard_ready", operation_id="dashboard-op",
+                                  context="dashboard", page_path=destination))
+    app.poll_events()
+    assert opened == [destination]

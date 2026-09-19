@@ -94,7 +94,7 @@ class UiEvent:
 
 @dataclass(frozen=True)
 class _Command:
-    kind: Literal["capture", "retake", "retake_page", "next", "finish", "new_capture", "confirm_subject", "confirm_page_subject", "retry", "recover", "resume_capture", "list_reviews", "confirm_review", "confirm_correct_batch", "list_reports", "generate_report", "list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam", "stop"]
+    kind: Literal["capture", "retake", "retake_page", "next", "finish", "new_capture", "confirm_subject", "confirm_page_subject", "retry", "recover", "resume_capture", "list_reviews", "confirm_review", "confirm_correct_batch", "open_dashboard", "list_reports", "generate_report", "list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam", "stop"]
     operation_id: str
     job_id: str | None = None
     subject: str | None = None
@@ -216,6 +216,9 @@ class WorkflowWorker(threading.Thread):
                 self._emit(self._command_event(command, "workflow_outcome", outcome=outcome, completion=self._completion(outcome), context="recovered_job"))
             elif command.kind == "recover": self._recover()
             elif command.kind == "resume_capture": self._resume(command)
+            elif command.kind == "open_dashboard":
+                page = self._controller.dashboard.export()
+                self._emit(self._command_event(command, "dashboard_ready", page_path=page))
             elif command.kind in {"list_reviews", "confirm_review", "confirm_correct_batch"}: self._review(command)
             elif command.kind in {"list_reports", "generate_report"}: self._reports(command)
             elif command.kind in {"list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam"}: self._exams(command)
@@ -587,6 +590,12 @@ class CaptureViewModel:
         # Operation ownership outlives a deferred window. Its durable completion
         # refreshes recovery and releases only its own busy operation; visible
         # dialog mutation still requires the current dialog identity.
+        if event.kind == "dashboard_ready" and event.context == "dashboard":
+            if event.operation_id != self.active_operation_id:
+                return False
+            self.finish_work(event.operation_id)
+            self.status = "知识库总览已更新。"
+            return True
         learning_events = {"report_list", "report_generated", "exam_list", "exam_blueprint", "exam_generated", "exam_approved", "exam_failed", "worker_error"}
         if event.context == "learning_center" and event.kind in learning_events:
             if event.operation_id != self.active_operation_id:
@@ -1109,6 +1118,8 @@ class LearningAssistantApp:
                         and event.kind != "preview"):
                     self._finish_model_progress(event.operation_id)
                 accepted=self.vm.apply_event(event)
+                if accepted and event.kind == "dashboard_ready" and event.page_path is not None:
+                    self._open_path(event.page_path)
                 if (accepted and event.kind == "recovered_job" and event.outcome is not None
                         and event.outcome.state in {"completed", "needs_review"}
                         and event.outcome.parent_job_id is None and event.completion is not None
@@ -1360,8 +1371,7 @@ class LearningAssistantApp:
         path=self._selected_completion().saved_folder
         if path and path.exists():self._open_path(path)
     def open_dashboard(self):
-        path=self.config.knowledge_root/"知识库首页.html"
-        if path.exists():self._open_path(path)
+        self._submit("open_dashboard","正在更新知识库总览…",True,context="dashboard")
     def open_details(self):
         target=self._selected_completion()
         if target.review_count > 0:

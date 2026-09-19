@@ -4,7 +4,7 @@
 在不削弱现有本地校验、家长确认和知识库安全边界的前提下，为晴子学习助手提供原生 Codex 与 DeepSeek 两种模型选择，并向用户暴露可安全保存的 DeepSeek API 配置界面。
 
 ## Current Phase
-Phase 11: active-capture versus recovered-task review routing
+Phase 12: 2024 BNU grade-5 mathematics curriculum graph
 
 ## Phases
 
@@ -74,6 +74,14 @@ Phase 11: active-capture versus recovered-task review routing
 - [x] Reproduce why both “本次分析 · 待确认” and “待家长确认” open an older page
 - [x] Add failing UI/review regression tests and repair the routing without weakening per-question confirmation
 - [x] Run full verification, rebuild/install safely, preserve user data/icon, and push to GitHub
+- **Status:** complete
+
+### Phase 12: 2024 BNU Grade-5 Mathematics Curriculum Graph
+- [x] Identify the three supplied cover/contents images and transcribe the photographed source without importing unrelated editions
+- [x] Design a versioned curriculum graph with school, enrichment, and future-grade tracks
+- [x] Build a first-pass curriculum map and Obsidian-compatible export without mutating confirmed learning facts
+- [x] Integrate a discoverable entry from the existing knowledge overview and test graph/link behavior
+- [x] Validate against the photographed contents, run regression checks, and deliver the exact artifacts
 - **Status:** complete
 
 ## Key Questions

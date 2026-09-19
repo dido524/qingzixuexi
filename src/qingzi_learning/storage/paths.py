@@ -61,6 +61,15 @@ class KnowledgePaths:
             raise ValueError("非法文件名")
         return self._contained(self._knowledge_root / filename)
 
+    def curriculum_file(self, subject: str, catalog_id: str, filename: str) -> Path:
+        """A guarded course-specific export path, separate from observed facts."""
+        tree = self.ensure_subject_tree(subject)
+        if not _FILE_NAME.fullmatch(catalog_id) or not _FILE_NAME.fullmatch(filename):
+            raise ValueError("非法课程文件名")
+        directory = self._contained(tree.subject_root / "课程体系" / catalog_id, tree.subject_root)
+        directory.mkdir(parents=True, exist_ok=True)
+        return self._contained(directory / filename, tree.subject_root)
+
     def report_directory(
         self, year: str | int, month: str | int, report_id: str
     ) -> Path:

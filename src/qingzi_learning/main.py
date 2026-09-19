@@ -37,6 +37,7 @@ from qingzi_learning.camera.devices import (
     open_document_camera,
 )
 from qingzi_learning.config import load_config
+from qingzi_learning.curriculum.catalog import load_catalogs
 from qingzi_learning.camera.quality import check_image_quality
 from qingzi_learning.export.safe_write import atomic_write, atomic_write_bytes, is_reparse_point
 from qingzi_learning.ui.camera_process import CameraProcess
@@ -154,6 +155,11 @@ def _smoke_check() -> int:
     storage_resource = files("qingzi_learning.storage") / "schema.sql"
     if not storage_resource.is_file():
         print("打包检查失败：缺少资料库 Schema。")
+        return 2
+    try:
+        load_catalogs()
+    except (OSError, ValueError, KeyError):
+        print("打包检查失败：数学课程目录缺失或无效。")
         return 2
     # Prove the bundled SQL resource can initialize SQLite, but direct every
     # write to an automatically removed system-temp directory.  In particular,

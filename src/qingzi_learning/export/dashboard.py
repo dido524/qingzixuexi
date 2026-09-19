@@ -19,15 +19,23 @@ from qingzi_learning.storage.repository import KnowledgeRepository
 class DashboardExporter:
     """Write a local dashboard whose links point only to generated/root-contained material."""
 
-    def __init__(self, repo: KnowledgeRepository, paths: KnowledgePaths | None = None) -> None:
+    def __init__(self, repo: KnowledgeRepository, paths: KnowledgePaths | None = None,
+                 curriculum_catalogs: list[dict[str, Any]] | None = None) -> None:
         self.repo = repo
         self.paths = paths or KnowledgePaths(repo.config)
         self.markdown = MarkdownExporter(repo, self.paths)
+        from qingzi_learning.curriculum.catalog import load_catalogs
+        from qingzi_learning.curriculum.exporter import CurriculumExporter
+        self.curricula = [CurriculumExporter(self.paths, catalog)
+                          for catalog in (curriculum_catalogs if curriculum_catalogs is not None else load_catalogs())
+                          if catalog["subject"] in repo.config.subjects]
 
     def export(self) -> Path:
         # Create every linked first-version Markdown destination before publishing HTML links.
         for subject in self.repo.config.subjects:
             self.markdown.export_subject(subject)
+        for curriculum in self.curricula:
+            curriculum.export()
         snapshot = self.repo.dashboard_snapshot()
         destination = self.paths.safe_root_file("知识库首页.html")
         latest = self.repo.latest_completed_report()
@@ -47,7 +55,13 @@ class DashboardExporter:
         paths = {self.paths.safe_root_file("知识库首页.html")}
         for subject in self.repo.config.subjects:
             paths.update(self.markdown.expected_paths(subject))
+        for curriculum in self.curricula:
+            paths.update(curriculum.expected_paths())
         return paths
+
+    def parent_note_paths(self) -> set[Path]:
+        return {path for curriculum in self.curricula
+                for path in curriculum.parent_note_paths()}
 
     def _render(
         self,
@@ -153,6 +167,15 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
                 ) + "</ul>"
             else:
                 body = '<p class="empty">暂无重点短板。</p>'
+            subject_curricula = [item for item in self.curricula if item.catalog["subject"] == subject]
+            if subject_curricula:
+                entries = "".join(
+                    f'<p>{self._link(subject + "课程知识图（" + item.catalog["title"] + "）", item.entry_path())}'
+                    f' · {"学校课程" if item.catalog["track"] == "school" else "兴趣班"}</p>'
+                    for item in subject_curricula
+                )
+                body = (entries + '<p class="meta">教材目录确认的课程结构；橙色连线是教学整理建议。'
+                        '尚未把历史题目自动归类到教材单元。</p>' + body)
             sections.append(
                 f'<section class="weak-subject" data-subject="{html.escape(subject, quote=True)}">'
                 f"<h3>{html.escape(subject)}</h3>{body}</section>"

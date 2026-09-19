@@ -88,3 +88,12 @@
 - Scoped review includes unconfirmed legacy model-correct questions for the selected document, while the unscoped/global review list remains only truly pending questions. The newest completed legacy capture is surfaced once on startup so the user's five-question math page is reachable without rescanning.
 - A split parent's review scope must survive each child confirmation; otherwise the next question and main-window summary can jump to or remain on the wrong task.
 - A SQLite online backup made through the same Python runtime that sees the active user database contains 11 documents and all five questions of the latest math capture: `C:\Users\Home\Documents\QingziLearningAssistant\backups\knowledge-pre-all-question-review-20260919.sqlite3`.
+
+## 2024 BNU Grade-5 Upper Mathematics Curriculum (2026-09-19)
+
+- User-supplied newest three images in `C:\Users\Home\Downloads`: `20260919_165503.jpg` (front cover), `20260919_165508.jpg` (title page), and `20260919_165515.jpg` (two-page contents). Treat the photographs as the authoritative source for this physical book, not web pages that may show the older BNU edition.
+- Cover/title page: `义务教育教科书 数学 五年级 上册`, 北京师范大学出版社, 北京师范大学组织编写; cover carries a 2024 approval emblem. The emblem does not prove the printing year.
+- Photographed contents, left page: Unit 1 小数的再认识和加减法 p2; Unit 2 三角形的再认识 p21; 综合实践 小小设计师 p31; Unit 3 小数乘法 p35; Unit 4 用字母表示（一） p50; Unit 5 多边形的面积 p60.
+- Photographed contents, right page: 数学好玩 鸡兔同笼 p80; Unit 6 图形的位置与运动（一） p82; Unit 7 倍数与因数 p89; Unit 8 可能性 p102; 综合实践 多少落叶能铺满 p109; 总复习 p113.
+- A 2026 government education-training report corroborates that a BNU textbook editor explained the fifth-grade upper book and the `多少落叶能铺满` practice activity: https://www.fengshun.gov.cn/zfxxgkml/fsxjyj/gzdt/content/mpost_2945587.html . Some indexed websites labeled `北师大版（2024）` still list the old first unit `小数除法`, so never import their chapter order into this catalog.
+- Current Markdown exporter has per-subject notes and source-question back-links but no explicit prerequisite/part-of/confusable concept graph. This new graph must keep catalog identity distinct from observed pupil mastery and from unresolved model labels.

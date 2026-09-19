@@ -248,6 +248,25 @@ def publish_initial(repo, parent_owned):
         assert WorkflowController(repo.config, NeverAnalyze(), repo).retry_pending("doc").state == "completed"
 
 
+def test_missing_parent_curriculum_note_is_recreated_without_overwriting_other_notes(repo):
+    from qingzi_learning.curriculum.exporter import CurriculumExporter
+    from qingzi_learning.storage.paths import KnowledgePaths
+
+    publish_initial(repo, False)
+    controller = WorkflowController(repo.config, NeverAnalyze(), repo)
+    curriculum = CurriculumExporter(KnowledgePaths(repo.config))
+    missing = curriculum._file("我的-u01.md")
+    preserved = curriculum._file("我的-u02.md")
+    preserved.write_text("家长自己写的笔记", encoding="utf-8")
+    missing.unlink()
+
+    assert not controller.publication.current()
+    assert controller.retry_pending("doc").state == "completed"
+    assert missing.is_file()
+    assert preserved.read_text(encoding="utf-8") == "家长自己写的笔记"
+    assert controller.publication.current()
+
+
 @pytest.mark.parametrize("parent_owned", [False, True])
 @pytest.mark.parametrize("restart", [False, True])
 @pytest.mark.parametrize("damage", ["omitted_corrupt", "extra", "renamed", "empty", "missing", "hash", "path"])
@@ -285,7 +304,9 @@ def test_manifest_exact_set_is_reconstructed_on_retry(repo, parent_owned, restar
     assert controller.retry_pending("doc").state == "completed"
     assert controller.publication.current()
     actual = json.loads(repo.connection.execute("SELECT files_json FROM reading_publication").fetchone()[0])
-    assert set(actual) == set(expected)
+    # Parent-owned 我的-* notes are real linked files, but deliberately not
+    # hash-owned by the generated-output manifest.
+    assert set(actual) == controller.publication._expected_outputs()
     assert all((root / name).read_bytes() == content for name, content in expected.items())
     if damage == "extra":
         assert (root / "user.md").read_text(encoding="utf-8") == "user-owned"

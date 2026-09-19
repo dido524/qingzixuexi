@@ -165,6 +165,11 @@ class PublicationCoordinator:
                     _guard(path, self.root)
                     if sha256(path.read_bytes()).hexdigest() != digest:
                         return False
+                # Parent notes are linked by generated Markdown, but their
+                # contents are never owned by the publication manifest.
+                from qingzi_learning.export.dashboard import DashboardExporter
+                if not all(path.is_file() for path in DashboardExporter(self.repo).parent_note_paths()):
+                    return False
             except (OSError, ValueError, TypeError):
                 return False
             return True

@@ -57,6 +57,29 @@ def test_dashboard_is_self_contained_and_marks_future_actions(
     assert not path.with_suffix(".html.part").exists()
 
 
+def test_math_knowledge_map_links_photo_grounded_course_graph(dashboard: DashboardExporter) -> None:
+    page = dashboard.export().read_text("utf-8")
+    assert "数学课程知识图" in page
+    assert "bnu-math-g5-upper-2024-review" in page
+    assert "教材目录确认" in page
+    assert all(path.is_file() for path in dashboard.expected_paths())
+
+
+def test_dashboard_publishes_school_and_enrichment_catalogs_independently(repo: KnowledgeRepository) -> None:
+    from copy import deepcopy
+    from qingzi_learning.curriculum.catalog import load_catalog
+
+    school = load_catalog()
+    club = deepcopy(school)
+    club.update(catalog_id="club-math-g6-upper-v1", track="enrichment", grade="6", title="兴趣班六年级数学")
+    exporter = DashboardExporter(repo, curriculum_catalogs=[school, club])
+    page = exporter.export().read_text("utf-8")
+    assert "bnu-math-g5-upper-2024-review" in page
+    assert "club-math-g6-upper-v1" in page
+    assert "兴趣班六年级数学" in page
+    assert all(path.is_file() for path in exporter.expected_paths())
+
+
 def test_dashboard_links_latest_completed_learning_report(
     repo: KnowledgeRepository, dashboard: DashboardExporter
 ) -> None:

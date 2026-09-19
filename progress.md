@@ -127,3 +127,14 @@
 - Final exact-tree full suite: `684 passed, 1 skipped in 545.96s`; `git diff --check` exit 0 (only Windows line-ending notices).
 - PyInstaller package built successfully and installed to `C:\Users\Home\Documents\QingziLearningAssistant\app\晴子学习助手.exe` with the app closed. Restored the desktop shortcut's `qingzi-photo.ico` icon; installed `--smoke-check` exited 0.
 - Pushed release code commit `74c7aff36e5ceef1a018494a81a9d71ad8e6f199` to GitHub `main` by fast-forward; verified the remote ref matches.
+
+## Session: 2026-09-19 — 2024 BNU Curriculum Graph
+
+- Identified and visually inspected the newest three Download images; photographed volume is BNU grade-5 upper mathematics, 2024-approved edition. Transcribed eight numbered units, two integrated-practice entries, one math-play entry, and review with page anchors into findings.md.
+- Confirmed the older existing planning files were all complete through Phase 11. Added Phase 12 for catalog, extensibility, visualization, integration, and verification.
+- Web cross-check found edition drift in third-party indexed curricula; user photographs remain authoritative for the first catalog version.
+- Added the versioned course catalog, offline HTML/Obsidian-compatible graph, automatic overview entry, and editable parent notes separate from regenerated system notes. Preserved older generated notes and all pupil facts.
+- Review caught a missing-parent-note repair gap. A red/green test now confirms deleted notes are recreated while surviving parent edits remain untouched; 28 affected publication cases passed.
+- Final full suite: `718 passed, 1 skipped in 1636.68s`. PyInstaller build passed; source and bundled catalog SHA-256 match (`EBD6F41019380E3721DD5B3B0F174CF93CAAE095695C3E949119C0FDB5D4E571`); dist and installed `--smoke-check` both exited 0. Dist EXE SHA-256: `2C7EADFC38FE3E0A5B641AC4CE10EA337BC17A3301BA05F2D735AF9C3E6E648F`.
+- With the application closed, backed up the real SQLite file to `C:\Users\Home\AppData\Local\QingziLearningAssistant\backups\knowledge-before-curriculum-20260919-181146.sqlite3`. Source/backup SHA-256: `8706BDBC0B5D33C0EF0462A4B8416DB68BB6AF0A8E8ED0D2D3049A3E83BE3477`; integrity `ok`, 11 documents, 112 questions. Installed in the existing application directory, restored the custom desktop icon, and verified the installed EXE hash equals dist and the database hash/counts are unchanged.
+- The source photos and their private knowledge-base copies match byte-for-byte by SHA-256; none enter the public repository. Current catalog covers photographed contents only, not invented inner-chapter concepts. Future grade/club catalogs use separate IDs and tracks, but migration from the currently fixed `5th grade` root will be planned when actually needed.

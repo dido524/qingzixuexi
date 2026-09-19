@@ -19,17 +19,24 @@ $reportNarrativeSchema = Join-Path $projectRoot 'src\qingzi_learning\schema\repo
 $examGenerationSchema = Join-Path $projectRoot 'src\qingzi_learning\schema\exam-generation.schema.json'
 $examVerificationSchema = Join-Path $projectRoot 'src\qingzi_learning\schema\exam-verification.schema.json'
 $storageSchema = Join-Path $projectRoot 'src\qingzi_learning\storage\schema.sql'
+$curriculumCatalogDirectory = Join-Path $projectRoot 'src\qingzi_learning\curriculum\catalogs'
+$curriculumCatalog = Join-Path $curriculumCatalogDirectory 'bnu_math_g5_upper_2024.json'
 $schemaDestination = 'qingzi_learning\schema'
 $storageDestination = 'qingzi_learning\storage'
+$curriculumDestination = 'qingzi_learning\curriculum\catalogs'
 
-foreach ($required in @($python, $main, $iconSource, $versionFile, $strictSchema, $transportSchema, $reportNarrativeSchema, $examGenerationSchema, $examVerificationSchema, $storageSchema)) {
+foreach ($required in @($python, $main, $iconSource, $versionFile, $strictSchema, $transportSchema, $reportNarrativeSchema, $examGenerationSchema, $examVerificationSchema, $storageSchema, $curriculumCatalog)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "构建输入缺失：$required"
     }
 }
 
+$previousPythonPath = $env:PYTHONPATH
 Push-Location $projectRoot
 try {
+    # The shared virtualenv may be editable-installed against the parent checkout.
+    # Always test and package this exact worktree's source tree.
+    $env:PYTHONPATH = Join-Path $projectRoot 'src'
     if (-not $SkipTests) {
         & $python -m pytest -q
         if ($LASTEXITCODE -ne 0) { throw "测试未通过，已停止打包。" }
@@ -59,6 +66,7 @@ try {
         --add-data "$examGenerationSchema;$schemaDestination" `
         --add-data "$examVerificationSchema;$schemaDestination" `
         --add-data "$storageSchema;$storageDestination" `
+        --add-data "$curriculumCatalogDirectory;$curriculumDestination" `
         $main
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败。" }
 
@@ -79,6 +87,9 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $internalRoot 'qingzi_learning\storage\schema.sql') -PathType Leaf)) {
         throw "打包检查失败：未包含资料库 Schema。"
     }
+    if (-not (Test-Path -LiteralPath (Join-Path $internalRoot 'qingzi_learning\curriculum\catalogs\bnu_math_g5_upper_2024.json') -PathType Leaf)) {
+        throw "打包检查失败：未包含数学课程目录。"
+    }
     foreach ($dependency in @('PIL', 'cv2', 'tkinter', 'multiprocessing')) {
         if (-not (Test-Path -LiteralPath (Join-Path $internalRoot $dependency) -PathType Container)) {
             throw "打包检查失败：未包含依赖 $dependency"
@@ -87,5 +98,6 @@ try {
     Write-Host "打包完成：$executable"
 }
 finally {
+    $env:PYTHONPATH = $previousPythonPath
     Pop-Location
 }

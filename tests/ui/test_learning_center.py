@@ -4,7 +4,9 @@ import queue
 
 from qingzi_learning.config import AppConfig
 from qingzi_learning.reporting.service import ReportArtifacts
+from qingzi_learning.export.dashboard import DashboardExporter
 from qingzi_learning.storage.repository import ReportRun
+from qingzi_learning.storage.repository import KnowledgeRepository
 from qingzi_learning.ui.app import CaptureViewModel, UiEvent, WorkflowWorker
 
 
@@ -67,6 +69,27 @@ def test_worker_routes_report_history_and_generation_on_its_controller(tmp_path:
     assert generated.kind == "report_generated" and generated.operation_id == generate_operation
     assert generated.report_artifacts == artifacts
     assert generated.report_runs == (_run(),)
+
+
+def test_worker_refreshes_old_dashboard_before_returning_path(tmp_path: Path) -> None:
+    config = AppConfig(tmp_path / "knowledge", ("语文", "数学", "英语"), 1, 2,
+                       tmp_path / "spool", tmp_path / "data")
+    repo = KnowledgeRepository(config)
+    old_page = config.knowledge_root / "知识库首页.html"
+    old_page.parent.mkdir(parents=True)
+    old_page.write_text("<html>old cached page</html>", "utf-8")
+    controller = type("Controller", (), {"dashboard": DashboardExporter(repo), "repo": repo})()
+    worker = WorkflowWorker(config, lambda: controller, events=queue.Queue())
+    worker._controller = controller
+    try:
+        operation = worker.submit("open_dashboard", context="dashboard")
+        worker._process(worker._commands.get_nowait())
+        event = worker.events.get_nowait()
+        assert event.kind == "dashboard_ready" and event.operation_id == operation
+        assert event.page_path == old_page
+        assert "数学课程知识图" in old_page.read_text("utf-8")
+    finally:
+        repo.close()
 
 
 def test_view_model_accepts_only_current_learning_center_dialog() -> None:

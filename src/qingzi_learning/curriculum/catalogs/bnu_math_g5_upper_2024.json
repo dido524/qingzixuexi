@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "catalog_id": "bnu-math-g5-upper-2024-review",
+  "title": "北师大版数学五年级上册课程结构",
+  "subject": "数学",
+  "stage": "小学",
+  "grade": "5",
+  "term": "upper",
+  "publisher": "北京师范大学出版社",
+  "edition": "2024审定",
+  "track": "school",
+  "sources": [
+    {"kind": "photo", "filename": "20260919_165503.jpg", "sha256": "e8a73ccce8ee12b9968fff1dfc0662c6cd950db53407e234a7c93f8487d08f95"},
+    {"kind": "photo", "filename": "20260919_165508.jpg", "sha256": "c7d6c852de30092bfeae44c5f1eb634c40e3af1eeb44a12ace6b84219c9e6b98"},
+    {"kind": "photo", "filename": "20260919_165515.jpg", "sha256": "79efc81f519646570c6e9377a3abcee2a5583d311bfcf4da9b803828a2f7fb97"}
+  ],
+  "nodes": [
+    {"node_id": "u01", "order": 1, "type": "unit", "title": "小数的再认识和加减法", "page": 2},
+    {"node_id": "u02", "order": 2, "type": "unit", "title": "三角形的再认识", "page": 21},
+    {"node_id": "p01", "order": 3, "type": "practice", "title": "小小设计师", "page": 31},
+    {"node_id": "u03", "order": 4, "type": "unit", "title": "小数乘法", "page": 35},
+    {"node_id": "u04", "order": 5, "type": "unit", "title": "用字母表示（一）", "page": 50},
+    {"node_id": "u05", "order": 6, "type": "unit", "title": "多边形的面积", "page": 60},
+    {"node_id": "m01", "order": 7, "type": "math_play", "title": "鸡兔同笼", "page": 80},
+    {"node_id": "u06", "order": 8, "type": "unit", "title": "图形的位置与运动（一）", "page": 82},
+    {"node_id": "u07", "order": 9, "type": "unit", "title": "倍数与因数", "page": 89},
+    {"node_id": "u08", "order": 10, "type": "unit", "title": "可能性", "page": 102},
+    {"node_id": "p02", "order": 11, "type": "practice", "title": "多少落叶能铺满", "page": 109},
+    {"node_id": "r01", "order": 12, "type": "review", "title": "总复习", "page": 113}
+  ],
+  "edges": [
+    {"from": "u01", "to": "u03", "type": "related", "basis": "suggestion"},
+    {"from": "u02", "to": "u05", "type": "related", "basis": "suggestion"},
+    {"from": "u04", "to": "m01", "type": "application", "basis": "suggestion"},
+    {"from": "u05", "to": "p02", "type": "application", "basis": "suggestion"}
+  ]
+}
