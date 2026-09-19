@@ -73,8 +73,8 @@ Phase 11: active-capture versus recovered-task review routing
 - [x] Identify the newest captured document and whether analysis/review data was actually saved
 - [x] Reproduce why both “本次分析 · 待确认” and “待家长确认” open an older page
 - [x] Add failing UI/review regression tests and repair the routing without weakening per-question confirmation
-- [ ] Run full verification, rebuild/install safely, preserve user data/icon, and push to GitHub
-- **Status:** in_progress
+- [x] Run full verification, rebuild/install safely, preserve user data/icon, and push to GitHub
+- **Status:** complete
 
 ## Key Questions
 1. How does the current model schema represent OCR text, question status, and page identity?

@@ -54,4 +54,4 @@
 
 - [x] Run full test suite and build; check changed-file diff and smoke test.
 - [x] Confirm app closed, locate/backup actual user database, install app, preserve icon.
-- [ ] Test installed executable and push verified branch to `origin/main`.
+- [x] Test installed executable and push verified branch to `origin/main`.

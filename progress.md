@@ -126,3 +126,4 @@
 - Fresh-context review found two Important restart defects. Added five failing cases, then fixed chronological root-task selection (including same-second inserts), pending-task default selection, split-child exclusion, and corrupt-journal isolation; targeted restart/split suite now passes `10 passed`.
 - Final exact-tree full suite: `684 passed, 1 skipped in 545.96s`; `git diff --check` exit 0 (only Windows line-ending notices).
 - PyInstaller package built successfully and installed to `C:\Users\Home\Documents\QingziLearningAssistant\app\晴子学习助手.exe` with the app closed. Restored the desktop shortcut's `qingzi-photo.ico` icon; installed `--smoke-check` exited 0.
+- Pushed release code commit `74c7aff36e5ceef1a018494a81a9d71ad8e6f199` to GitHub `main` by fast-forward; verified the remote ref matches.
