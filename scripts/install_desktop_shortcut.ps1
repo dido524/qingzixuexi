@@ -79,7 +79,7 @@ function Test-DeliveryPackage([string]$Directory) {
 }
 
 function Invoke-PackageSmoke([string]$Executable) {
-    $process = Start-Process -FilePath $Executable -ArgumentList '--smoke-check' -PassThru
+    $process = Start-Process -FilePath $Executable -ArgumentList '--smoke-check' -WindowStyle Hidden -PassThru
     if (-not $process.WaitForExit(20000)) {
         Stop-Process -Id $process.Id -Force
         throw "程序安全检查超时。"

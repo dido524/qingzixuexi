@@ -1079,11 +1079,118 @@ def test_footer_stays_visible_after_large_preview_and_window_restore(withdrawn_a
 
         assert app.footer.winfo_ismapped()
         assert app.footer.winfo_y() + app.footer.winfo_height() <= app.root.winfo_height()
-        assert all(button.winfo_ismapped() for button in app.buttons.values())
+        assert all(app.buttons[name].winfo_ismapped() for name in ("capture", "retake", "next", "finish", "more"))
+        assert not any(app.buttons[name].winfo_ismapped() for name in ("retry", "review", "folder", "dashboard", "learning"))
         assert int(app.preview.cget("width")) >= 520
         assert int(app.preview.cget("height")) >= 390
     finally:
         app.root.withdraw()
+
+
+def test_daily_home_exposes_capture_flow_and_keeps_advanced_tools_one_click_away(withdrawn_app):
+    app, _ = withdrawn_app
+    app.root.geometry("1024x700+0+0")
+    app.root.deiconify()
+    try:
+        app.root.update()
+        assert "自动" in app.daily_step_var.get()
+        assert "未批" in app.daily_step_var.get() and "老师已批" in app.daily_step_var.get()
+        assert all(app.buttons[name].winfo_ismapped() for name in ("capture", "retake", "next", "finish", "more"))
+        assert not app.buttons["details"].winfo_ismapped()
+        assert not any(app.buttons[name].winfo_ismapped() for name in
+                       ("retry", "review", "folder", "dashboard", "learning"))
+        preview_height = app.preview_shell.winfo_height()
+        app.buttons["more"].invoke()
+        app.root.update()
+        assert app.more_window.winfo_ismapped()
+        assert all(app.buttons[name].winfo_ismapped() for name in
+                   ("retry", "review", "folder", "dashboard", "learning"))
+        assert app.preview_shell.winfo_height() == preview_height
+        app.more_window.withdraw()
+        app.root.update()
+        assert not app.more_window.winfo_ismapped()
+    finally:
+        app.root.withdraw()
+
+
+def test_more_tools_action_opens_folder_and_returns_to_daily_home(withdrawn_app, tmp_path):
+    app, opened = withdrawn_app
+    folder = tmp_path / "today"; folder.mkdir()
+    app.vm.completion = CompletionSummary(saved_folder=folder)
+    app._refresh()
+    app.root.deiconify()
+    try:
+        app.buttons["more"].invoke(); app.root.update()
+        assert app.more_window.winfo_ismapped()
+        app.buttons["folder"].invoke(); app.root.update()
+        assert opened == [folder]
+        assert not app.more_window.winfo_ismapped()
+        app.buttons["more"].invoke(); app.root.update()
+        assert app.more_window.winfo_ismapped()
+        app.more_window.withdraw()
+    finally:
+        app.root.withdraw()
+
+
+def test_subject_confirmation_moves_more_tools_out_of_the_way(withdrawn_app):
+    app, _ = withdrawn_app
+    app.root.deiconify()
+    try:
+        app.buttons["more"].invoke(); app.root.update()
+        assert app.more_window.winfo_ismapped()
+        app.vm.page_subject_dialog_needed = True
+        app._refresh(); app.root.update()
+        assert not app.more_window.winfo_ismapped()
+    finally:
+        app.root.withdraw()
+
+
+def test_sealed_pending_analysis_guides_retry_instead_of_disabled_capture(withdrawn_app):
+    app, _ = withdrawn_app
+    app.vm.on_page_captured()
+    app.vm.on_workflow_outcome(WorkflowOutcome("pending-1", "pending", None,
+                                              error_code="cli_failed"))
+    app._refresh()
+
+    assert not app.vm.can_next and not app.vm.can_finish
+    assert not app.buttons["details"].grid_info()
+    assert "重试" in app.daily_step_var.get()
+    assert "继续拍下一页" not in app.daily_step_var.get()
+
+
+def test_result_entry_appears_after_analysis_and_guides_parent_review(withdrawn_app, tmp_path):
+    app, _ = withdrawn_app
+    app.root.deiconify()
+    try:
+        gallery = tmp_path / "批改结果.html"; gallery.touch()
+        app.vm.completion = CompletionSummary(question_count=5, review_count=3,
+                                              grading_gallery_path=gallery)
+        app._refresh(); app.root.update()
+        assert app.buttons["details"].winfo_ismapped()
+        assert "确认" in app.buttons["details"].cget("text")
+        assert "3" in app.buttons["details"].cget("text")
+        assert "第3步" in app.daily_step_var.get()
+
+        app.vm.completion = CompletionSummary(question_count=5, grading_gallery_path=gallery)
+        app._refresh(); app.root.update()
+        assert app.buttons["details"].winfo_ismapped()
+        assert "查看本次批改结果" in app.buttons["details"].cget("text")
+    finally:
+        app.root.withdraw()
+
+
+def test_result_entry_opens_analysis_when_preferred_gallery_was_removed(withdrawn_app, tmp_path):
+    app, opened = withdrawn_app
+    analysis = tmp_path / "本次分析.md"; analysis.touch()
+    app.vm.completion = CompletionSummary(
+        analysis_details_path=analysis,
+        grading_gallery_path=tmp_path / "missing-gallery.html",
+    )
+    app._refresh()
+    assert app.buttons["details"].cget("state") == "normal"
+
+    app.buttons["details"].invoke()
+    assert opened == [analysis]
 
 
 def test_preferred_window_gives_preview_most_of_the_workspace(withdrawn_app):
@@ -1279,7 +1386,7 @@ def test_analysis_button_opens_parent_review_before_printable_gallery(withdrawn_
     )
 
     app._refresh()
-    assert app.buttons["details"].cget("text") == "本次分析 · 待确认"
+    assert app.buttons["details"].cget("text") == "查看批改并确认（2 题）"
     app.buttons["details"].invoke()
 
     assert app._review_dialog is not None

@@ -764,13 +764,6 @@ class LearningAssistantApp:
             self._update_model_label()
             tk.Label(model_box,textvariable=self.model_var,font=("Microsoft YaHei UI",9,"bold"),
                      fg=colors["ink"],bg=colors["pink_soft"]).pack(side="left",padx=(0,7))
-            self.model_settings_button=tk.Button(
-                model_box,text="模型设置",command=self.open_model_settings,
-                font=("Microsoft YaHei UI",9,"bold"),padx=10,pady=5,
-                fg="white",bg=colors["pink"],activeforeground="white",
-                activebackground=colors["pink_dark"],relief="solid",borderwidth=1,
-            )
-            self.model_settings_button.pack(side="left")
         self.page_var=tk.StringVar(master=self.root,value="准备拍摄第 1 页")
         tk.Label(header,textvariable=self.page_var,font=("Microsoft YaHei UI",10,"bold"),fg=colors["pink_dark"],bg=colors["card"],padx=12,pady=6,
                  highlightbackground=colors["line"],highlightthickness=1).grid(row=0,column=2,padx=22,pady=10,sticky="e")
@@ -805,18 +798,75 @@ class LearningAssistantApp:
 
         self.footer=tk.Frame(self.root,bg=colors["card"],highlightbackground=colors["line"],highlightthickness=1)
         self.footer.grid(row=2,column=0,sticky="ew"); self.buttons={}
+        self.daily_step_var=tk.StringVar(master=self.root)
+        tk.Label(self.footer,textvariable=self.daily_step_var,anchor="w",fg=colors["pink_dark"],
+                 bg=colors["card"],font=("Microsoft YaHei UI",9,"bold")).pack(fill="x",padx=20,pady=(7,0))
         primary=tk.Frame(self.footer,bg=colors["card"]); primary.pack(fill="x",padx=16,pady=(8,4))
-        secondary=tk.Frame(self.footer,bg=colors["card"]); secondary.pack(fill="x",padx=16,pady=(0,7))
         primary_items=(("拍下这一页",self.capture,"capture"),("重拍选中页",self.retake,"retake"),("下一页",self.next_page,"next"),("完成并分析",self.finish,"finish"))
-        secondary_items=(("重试任务",self.retry_selected,"retry"),("待家长确认",self.open_reviews,"review"),("资料文件夹",self.open_folder,"folder"),("知识库总览",self.open_dashboard,"dashboard"),("学习与复习",self.open_learning_center,"learning"),("本次分析",self.open_details,"details"))
         for column,(text,fn,name) in enumerate(primary_items):
             primary.grid_columnconfigure(column,weight=1,uniform="primary")
             button=tk.Button(primary,text=text,command=fn,font=("Microsoft YaHei UI",9,"bold"),padx=10,pady=6)
             button.grid(row=0,column=column,sticky="ew",padx=4); self.buttons[name]=button
-        for column,(text,fn,name) in enumerate(secondary_items):
-            secondary.grid_columnconfigure(column,weight=1,uniform="secondary")
-            button=tk.Button(secondary,text=text,command=fn,font=("Microsoft YaHei UI",9,"bold"),padx=10,pady=6)
-            button.grid(row=0,column=column,sticky="ew",padx=3); self.buttons[name]=button
+        result_row=tk.Frame(self.footer,bg=colors["card"])
+        result_row.pack(fill="x",padx=16,pady=(0,8)); result_row.grid_columnconfigure(0,weight=1)
+        self.buttons["details"]=tk.Button(result_row,text="查看本次批改结果",command=self.open_details,
+                                           font=("Microsoft YaHei UI",10,"bold"),padx=12,pady=7)
+        self.buttons["details"].grid(row=0,column=0,sticky="ew",padx=4)
+        self.buttons["more"]=tk.Button(result_row,text="更多工具",command=self.open_more,
+                                        font=("Microsoft YaHei UI",9,"bold"),padx=16,pady=7)
+        self.buttons["more"].grid(row=0,column=1,sticky="ew",padx=4)
+        self._build_more_window()
+
+    def _build_more_window(self):
+        colors=self.colors
+        self.more_window=tk.Toplevel(self.root,bg=colors["bg"])
+        self.more_window.withdraw()
+        self.more_window.title("学习与工具")
+        self.more_window.transient(self.root)
+        width=max(420,min(560,self.root.winfo_screenwidth()-80))
+        height=max(360,min(480,self.root.winfo_screenheight()-100))
+        self.more_window.geometry(f"{width}x{height}")
+        self.more_window.minsize(min(width,420),min(height,360))
+        self.more_window.protocol("WM_DELETE_WINDOW",self.more_window.withdraw)
+        tk.Label(self.more_window,text="学习与工具",font=("Microsoft YaHei UI",16,"bold"),
+                 fg=colors["ink"],bg=colors["bg"]).pack(anchor="w",padx=20,pady=(18,4))
+        tk.Label(self.more_window,text="每月复盘、查看资料或处理特殊任务时再来这里。",
+                 fg=colors["muted"],bg=colors["bg"]).pack(anchor="w",padx=20,pady=(0,12))
+        groups=(
+            ("学习与复盘",(("学习与复习",self.open_learning_center,"learning"),
+                        ("知识库总览",self.open_dashboard,"dashboard"))),
+            ("资料与待办",(("历史待家长确认",self.open_reviews,"review"),
+                        ("资料文件夹",self.open_folder,"folder"),
+                        ("重试任务",self.retry_selected,"retry"))),
+        )
+        for title,items in groups:
+            card=tk.Frame(self.more_window,bg=colors["card"],highlightbackground=colors["line"],highlightthickness=1)
+            card.pack(fill="x",padx=18,pady=(0,10))
+            tk.Label(card,text=title,font=("Microsoft YaHei UI",10,"bold"),
+                     fg=colors["pink_dark"],bg=colors["card"]).pack(anchor="w",padx=12,pady=(8,4))
+            row=tk.Frame(card,bg=colors["card"]); row.pack(fill="x",padx=8,pady=(0,9))
+            for column,(text,fn,name) in enumerate(items):
+                row.grid_columnconfigure(column,weight=1,uniform="tool")
+                button=tk.Button(row,text=text,command=lambda action=fn:self._run_more_action(action),
+                                 font=("Microsoft YaHei UI",9,"bold"),padx=8,pady=7)
+                button.grid(row=0,column=column,sticky="ew",padx=3)
+                self.buttons[name]=button
+        if self.model_settings is not None:
+            self.model_settings_button=tk.Button(
+                self.more_window,text="模型设置",command=lambda:self._run_more_action(self.open_model_settings),
+                font=("Microsoft YaHei UI",9,"bold"),padx=12,pady=7,
+            )
+            self.model_settings_button.pack(anchor="w",padx=20,pady=(0,10))
+
+    def _run_more_action(self, action):
+        self.more_window.withdraw()
+        action()
+
+    def open_more(self):
+        if self._closing or self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None:
+            return
+        self.more_window.deiconify()
+        self.more_window.lift()
 
     def _style_button(self,button,enabled):
         if enabled:
@@ -1255,22 +1305,44 @@ class LearningAssistantApp:
             except Exception:pass
         elif data and resample_changed:self._render_preview()
         page_modal=self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None
+        if page_modal:
+            self.more_window.withdraw()
         if self.model_settings is not None and hasattr(self,"model_settings_button"):
             settings_enabled=(not self._closing and not self.vm.busy and not page_modal
                               and self._review_dialog is None and self._learning_center is None)
             self._style_button(self.model_settings_button,settings_enabled)
         pending_review=target.review_count > 0
+        has_result=(pending_review or bool(
+            (target.grading_gallery_path and target.grading_gallery_path.exists())
+            or (target.analysis_details_path and target.analysis_details_path.exists())))
         states={"capture":self.vm.can_capture and not page_modal,"retake":self.vm.can_retake and not page_modal,"next":self.vm.can_next and not page_modal,"finish":self.vm.can_finish and not page_modal,
                 "review":not page_modal and not self.vm.busy and not self.vm.worker_failed,
                 "retry":not page_modal and not self.vm.busy and not self.vm.worker_failed and self._selected_recovery() is not None,
                 "folder":bool(target.saved_folder and target.saved_folder.exists()),
-                "details":(not page_modal and not self.vm.busy and not self.vm.worker_failed) if pending_review else bool(
-                    (target.grading_gallery_path and target.grading_gallery_path.exists())
-                    or (target.analysis_details_path and target.analysis_details_path.exists())),
+                "details":has_result and not page_modal and not self.vm.busy and not self.vm.worker_failed,
+                "more":not page_modal,
                 "dashboard":(self.config.knowledge_root/"知识库首页.html").exists(),
                 "learning":not page_modal and not self.vm.busy and not self.vm.worker_failed}
         self.buttons["capture"].configure(text="开始下一份" if self.vm.sealed else "拍下这一页")
-        self.buttons["details"].configure(text="本次分析 · 待确认" if pending_review else "本次分析")
+        self.buttons["details"].configure(text=(f"查看批改并确认（{target.review_count} 题）" if pending_review
+                                                 else "查看本次批改结果"))
+        if has_result:
+            self.buttons["details"].grid()
+            self.daily_step_var.set("第3步 · 查看本次批改，和孩子一起确认；确认后会更新知识库" if pending_review
+                                    else "第3步 · 查看本次批改结果")
+        else:
+            self.buttons["details"].grid_remove()
+            if self.vm.busy:
+                step="正在处理本次作业，请稍候"
+            elif page_modal or self.vm.subject_confirmation_needed:
+                step="请确认页面学科，随后会继续分析"
+            elif self.vm.sealed:
+                step="暂无可查看的批改结果；请查看状态，待处理任务可从「更多工具」重试"
+            elif self.vm.captured_page_count:
+                step="第2步 · 继续拍下一页，或完成并分析"
+            else:
+                step="第1步 · 放好作业并拍照；AI 自动批改未批作业、复核老师已批作业"
+            self.daily_step_var.set(step)
         states["capture"]=(self.vm.can_capture or self.vm.can_start_new) and not page_modal
         for name,allowed in states.items(): self._style_button(self.buttons[name],allowed and not self._closing)
     def _selected_recovery(self):
@@ -1295,8 +1367,10 @@ class LearningAssistantApp:
         if target.review_count > 0:
             self.open_reviews()
             return
-        path=target.grading_gallery_path or target.analysis_details_path
-        if path and path.exists():self._open_path(path)
+        for path in (target.grading_gallery_path,target.analysis_details_path):
+            if path and path.exists():
+                self._open_path(path)
+                return
     def close(self):
         if self._closing:return
         self._closing=True; self._stop_taskbar_flash(); self.vm.on_close(); self.worker.request_shutdown(); self._refresh()

@@ -113,7 +113,14 @@ def test_main_window_shows_selected_model_and_blocks_settings_while_busy(
 
     app.vm.finish_work("op")
     app._refresh()
-    app.open_model_settings()
+    app.root.deiconify()
+    app.buttons["more"].invoke()
+    app.root.update()
+    assert app.more_window.winfo_ismapped()
+    assert app.model_settings_button.winfo_ismapped()
+    app.model_settings_button.invoke()
+    app.root.update()
+    assert not app.more_window.winfo_ismapped()
     assert app._model_settings_dialog is not None
     app._model_settings_dialog.provider_var.set("deepseek")
     app._model_settings_dialog.api_key_var.set("sk-test")
