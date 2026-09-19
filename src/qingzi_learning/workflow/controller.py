@@ -26,6 +26,7 @@ from qingzi_learning.grading.annotation import AnnotationRenderer
 from qingzi_learning.knowledge.updater import KnowledgeUpdater
 from qingzi_learning.review.service import ReviewService
 from qingzi_learning.reporting.service import LearningReportService
+from qingzi_learning.reporting.narrative import LocalNarrativeProvider, NarrativeService
 from qingzi_learning.exams.blueprint import ExamRequest
 from qingzi_learning.exams.service import TargetedExamService
 from qingzi_learning.storage.paths import KnowledgePaths
@@ -69,7 +70,8 @@ class WorkflowController:
     """
 
     def __init__(self, config: AppConfig, analyzer, repo: KnowledgeRepository,
-                 updater=None, markdown=None, dashboard=None, now=None) -> None:
+                 updater=None, markdown=None, dashboard=None, now=None,
+                 narrative_provider=None, exam_generator=None, exam_verifier=None) -> None:
         self.config, self.analyzer, self.repo = config, analyzer, repo
         self.service = AnalysisService(analyzer)
         self.paths = KnowledgePaths(config)
@@ -78,8 +80,14 @@ class WorkflowController:
         self.dashboard = dashboard or DashboardExporter(repo, self.paths)
         self.annotations = AnnotationRenderer(config.knowledge_root)
         self.review = ReviewService(repo, updater=self.updater, markdown=self.markdown, dashboard=self.dashboard)
-        self.reports = LearningReportService(repo)
-        self.exams = TargetedExamService(repo)
+        narrative_service = (
+            NarrativeService(narrative_provider, LocalNarrativeProvider())
+            if narrative_provider is not None else None
+        )
+        self.reports = LearningReportService(repo, narrative_service=narrative_service)
+        self.exams = TargetedExamService(
+            repo, generator=exam_generator, verifier=exam_verifier
+        )
         self.publication = PublicationCoordinator(repo)
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._lock = threading.RLock()

@@ -53,3 +53,18 @@
 
 ## Visual/Browser Findings
 - No external visual source used yet.
+
+## Model Switching Findings (2026-09-19)
+- The current runtime is already contract-oriented: Codex receives one fixed prompt plus images and must return the packaged strict analysis schema.
+- The official DeepSeek API now documents native image input for `deepseek-flash` over an OpenAI-compatible `https://api.deepseek.com` endpoint, including base64 image data URLs.
+- DeepSeek JSON Output guarantees syntactically valid JSON but not this application's full schema, so the existing local JSON Schema and typed validation must remain authoritative.
+- Codex `exec --output-schema` remains the native default and reuses the locally authenticated ChatGPT account.
+- The application currently has no settings UI or durable user configuration beyond fixed `AppConfig` paths.
+- `pyproject.toml` does not include an HTTP client dependency; the safest small implementation is the Python standard library HTTPS client so the packaged app gains no new runtime dependency.
+- The model selector must affect newly submitted work only. A running worker owns its controller for the process lifetime, so selection changes need a provider router that reads a thread-safe settings snapshot at each model call rather than reconstructing the worker.
+- The DeepSeek API key must never be written to the ordinary settings JSON. On Windows, DPAPI-protected bytes can be stored under the application data directory and decrypted only for the current user.
+- DeepSeek task adapters can reuse the existing prompts and local validators, so provider choice does not alter review, knowledge, or publication semantics.
+- Provider operational failures must not enter the exam quality-repair loop; doing so can duplicate paid requests after ambiguous network failures. Only malformed/schema-invalid exam output is eligible for the existing one-repair pass.
+- API keys must be restricted to printable non-whitespace ASCII and transport exceptions must be converted to safe application codes so header-validation errors cannot echo secrets.
+- ctypes defaults are not pointer-safe for `LocalFree` on 64-bit Windows. CryptProtectData, CryptUnprotectData, and LocalFree require explicit `argtypes` and `restype`; Microsoft requires DPAPI output buffers to be released with LocalFree.
+- The installed Microsoft Store Python interpreter virtualizes some direct AppData access. User-database backup checks must therefore rely on the actual Windows filesystem view (application closed, no WAL/SHM, matching file hash) rather than opening that path through the Store interpreter.

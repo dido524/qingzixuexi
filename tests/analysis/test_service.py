@@ -112,3 +112,18 @@ def test_document_session_directory_is_derived_and_validated(document, tmp_path)
     pages = (document.pages[0], replace(document.pages[1], path=tmp_path / "other.jpg"))
     with pytest.raises(ValueError, match="目录"):
         replace(document, pages=pages).session_dir
+
+
+@pytest.mark.parametrize("code", [
+    "deepseek_api_key_missing", "deepseek_auth_failed",
+    "deepseek_rate_limited", "deepseek_unavailable", "invalid_deepseek_response",
+])
+def test_deepseek_safe_error_codes_are_preserved_for_the_ui(document, code):
+    from qingzi_learning.analysis.codex_cli import AnalysisError
+    from qingzi_learning.analysis.service import AnalysisService
+
+    class FailingAnalyzer:
+        def analyze(self, _document):
+            raise AnalysisError(code)
+
+    assert AnalysisService(FailingAnalyzer()).analyze_or_queue(document).error_code == code

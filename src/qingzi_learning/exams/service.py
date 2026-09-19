@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from qingzi_learning.exams.blueprint import BlueprintBuilder, ExamRequest
 from qingzi_learning.exams.generator import ExamGenerator, ExamVerifier
+from qingzi_learning.analysis.codex_cli import AnalysisError
 from qingzi_learning.exams.render import ExamRenderer
 from qingzi_learning.exams.validation import ExamValidationError, validate_exam
 from qingzi_learning.export.publication import OutputBatch, publication_lock, write_output
@@ -21,7 +22,9 @@ from qingzi_learning.storage.repository import ExamRun, KnowledgeRepository
 
 
 class ExamGenerationError(RuntimeError):
-    pass
+    def __init__(self, code: str = "exam_validation_failed") -> None:
+        self.code = code
+        super().__init__(code)
 
 
 @dataclass(frozen=True)
@@ -84,12 +87,20 @@ class TargetedExamService:
                     raise ExamValidationError("独立校验题目范围不完整")
                 stored = [replace(item, exam_id=exam_id) for item in questions]
                 return self.repo.save_exam_generation(exam_id, generation, verification, stored)
+            except AnalysisError as exc:
+                if exc.code != "invalid_exam_response":
+                    self.repo.fail_exam(exam_id, "exam_validation_failed")
+                    raise ExamGenerationError(exc.code) from exc
+                last_error = exc
+                if not repair_issues:
+                    repair_issues = [exc.code]
             except Exception as exc:
                 last_error = exc
                 if not repair_issues:
                     repair_issues = [str(exc)]
         self.repo.fail_exam(exam_id, "exam_validation_failed")
-        raise ExamGenerationError("exam_validation_failed") from last_error
+        code = last_error.code if isinstance(last_error, AnalysisError) else "exam_validation_failed"
+        raise ExamGenerationError(code) from last_error
 
     def preview(self, exam_id: str) -> str:
         run = self.repo.get_exam_run(exam_id)

@@ -131,6 +131,34 @@ def test_service_fails_closed_after_one_unsuccessful_repair(repo) -> None:
     assert generator.calls == 2
 
 
+@pytest.mark.parametrize("code", [
+    "deepseek_api_key_missing", "deepseek_auth_failed",
+    "deepseek_rate_limited", "deepseek_unavailable",
+])
+def test_provider_failure_is_not_retried_as_a_quality_repair(repo, code) -> None:
+    from qingzi_learning.analysis.codex_cli import AnalysisError
+    from qingzi_learning.exams.service import ExamGenerationError, TargetedExamService
+
+    class FailingGenerator:
+        def __init__(self): self.calls = 0
+        def generate(self, *_args):
+            self.calls += 1
+            raise AnalysisError(code)
+        def repair(self, *_args):
+            self.calls += 1
+            raise AssertionError("provider failure must not be retried")
+
+    generator = FailingGenerator()
+    service = TargetedExamService(repo, Builder(), generator, Verifier())
+    with pytest.raises(ExamGenerationError) as caught:
+        service.create_draft(
+            ExamRequest("数学", "分数", 40, "适中", 5, False, False),
+            now=datetime(2026, 9, 18, tzinfo=timezone.utc),
+        )
+    assert caught.value.code == code
+    assert generator.calls == 1
+
+
 def test_service_supplies_validator_feedback_to_repair(repo) -> None:
     from qingzi_learning.exams.service import TargetedExamService
 

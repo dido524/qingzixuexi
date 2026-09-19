@@ -39,7 +39,10 @@ class AnalysisService:
         except AnalysisError as exc:
             # Only application-owned codes enter durable state, even for injected analyzers.
             allowed = {"cli_unavailable", "timeout", "cli_failed", "invalid_response",
-                       "invalid_document", "unsafe_cli_path"}
+                       "invalid_document", "unsafe_cli_path",
+                       "deepseek_api_key_missing", "deepseek_auth_failed",
+                       "deepseek_rate_limited", "deepseek_unavailable",
+                       "invalid_deepseek_response"}
             outcome = AnalysisOutcome("pending", error_code=exc.code if exc.code in allowed else "analysis_failed")
         except (ValueError, TypeError, ValidationError):
             outcome = AnalysisOutcome("pending", error_code="invalid_response")

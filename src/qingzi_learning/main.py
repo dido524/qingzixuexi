@@ -20,6 +20,17 @@ import os
 from hashlib import sha256
 
 from qingzi_learning.analysis.codex_cli import AnalysisError, CodexCliAnalyzer, resolve_codex_cli
+from qingzi_learning.exams.generator import ExamGenerator, ExamVerifier
+from qingzi_learning.models.deepseek import (
+    DeepSeekAnalyzer,
+    DeepSeekClient,
+    DeepSeekExamGenerator,
+    DeepSeekExamVerifier,
+    DeepSeekNarrativeProvider,
+)
+from qingzi_learning.models.router import ModelServices
+from qingzi_learning.models.settings import ModelSettingsError, ModelSettingsManager
+from qingzi_learning.reporting.narrative import CodexNarrativeProvider
 from qingzi_learning.camera.devices import (
     enumerate_document_cameras,
     find_document_camera,
@@ -162,12 +173,36 @@ def _smoke_check() -> int:
         finally:
             repository.close()
     try:
-        resolve_codex_cli()
+        settings = ModelSettingsManager(load_config().app_data_root)
+        selected = settings.snapshot().provider
+        if selected == "codex":
+            resolve_codex_cli()
+        elif not settings.has_deepseek_key():
+            print("DeepSeek API Key 尚未配置：请在应用的“模型设置”中填写。")
+            return 3
+    except ModelSettingsError:
+        print("模型设置无法读取：请打开应用重新保存模型设置。")
+        return 3
     except AnalysisError:
         print("Codex CLI 未找到：请先安装 Codex 并登录当前 ChatGPT 账号后再进行分析。")
         return 3
-    print("打包检查通过：Schema 已包含，Codex CLI 可用；未打开摄像头，也未调用分析。")
+    print(f"打包检查通过：Schema 已包含，{selected} 配置可用；未打开摄像头，也未调用分析。")
     return 0
+
+
+def _build_model_services(settings: ModelSettingsManager) -> ModelServices:
+    client = DeepSeekClient(settings)
+    return ModelServices.build(
+        settings,
+        codex_analyzer=CodexCliAnalyzer(),
+        deepseek_analyzer=DeepSeekAnalyzer(client),
+        codex_narrative=CodexNarrativeProvider(),
+        deepseek_narrative=DeepSeekNarrativeProvider(client),
+        codex_generator=ExamGenerator(),
+        deepseek_generator=DeepSeekExamGenerator(client),
+        codex_verifier=ExamVerifier(),
+        deepseek_verifier=DeepSeekExamVerifier(client),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,10 +213,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.smoke_check:
         return _smoke_check()
     config = load_config()
+    model_settings = ModelSettingsManager(config.app_data_root)
+    model_services = _build_model_services(model_settings)
 
     def controller_factory() -> WorkflowController:
         # Called inside WorkflowWorker.run, never in Tk's event thread.
-        return WorkflowController(config, CodexCliAnalyzer(), KnowledgeRepository(config))
+        return WorkflowController(
+            config, model_services.analyzer, KnowledgeRepository(config),
+            narrative_provider=model_services.narrative,
+            exam_generator=model_services.generator,
+            exam_verifier=model_services.verifier,
+        )
 
     def camera_factory():
         descriptor = find_document_camera(
@@ -193,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     # Production camera I/O runs in a killable spawn helper; the workflow worker
     # retains sole ownership of controller/repository/session state.
     worker = WorkflowWorker(config, controller_factory, camera_factory=camera_factory, isolated_camera=True)
-    LearningAssistantApp(root, config, worker)
+    LearningAssistantApp(root, config, worker, model_settings=model_settings)
     root.mainloop()
     return 0
 

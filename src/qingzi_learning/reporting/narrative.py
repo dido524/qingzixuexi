@@ -79,9 +79,10 @@ class NarrativeService:
 
     def generate(self, profile: dict[str, Any]) -> dict[str, Any]:
         try:
+            source = getattr(self.primary, "source_name", "codex")
             narrative = self.primary.generate(profile)
             validate_narrative(profile, narrative)
-            return {**narrative, "source": "codex"}
+            return {**narrative, "source": source}
         except Exception:
             narrative = self.fallback.generate(profile)
             validate_narrative(profile, narrative)

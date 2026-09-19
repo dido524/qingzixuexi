@@ -27,6 +27,7 @@ from qingzi_learning.ui.camera_process import CameraProcess
 from qingzi_learning.ui.page_subject_dialog import PageSubjectDialog
 from qingzi_learning.ui.learning_center import LearningCenterDialog
 from qingzi_learning.ui.model_progress import ModelProgressDialog
+from qingzi_learning.ui.model_settings_dialog import ModelSettingsDialog
 from qingzi_learning.ui.taskbar import TaskbarNotifier
 from qingzi_learning.review.service import ReviewItem
 from qingzi_learning.ui.review_dialog import ReviewDialog
@@ -34,6 +35,17 @@ from qingzi_learning.reporting.service import ReportArtifacts
 from qingzi_learning.exams.blueprint import ExamRequest
 from qingzi_learning.exams.service import ExamArtifacts, ExamGenerationError
 from qingzi_learning.storage.repository import ExamRun, ReportRun
+
+
+def _model_error_message(code: str, *, task: str = "分析") -> str:
+    messages = {
+        "deepseek_api_key_missing": "DeepSeek API Key 尚未配置，请打开“模型设置”后填写。",
+        "deepseek_auth_failed": "DeepSeek API Key 无效或没有权限，请在“模型设置”中检查。",
+        "deepseek_rate_limited": "DeepSeek 当前额度不足或请求过多，请检查额度后稍后重试。",
+        "deepseek_unavailable": "暂时无法连接 DeepSeek，请检查网络后重试。",
+        "invalid_deepseek_response": f"DeepSeek 返回的{task}格式不完整，资料已保留，请重试。",
+    }
+    return messages.get(code, "")
 
 
 class _Camera(Protocol):
@@ -293,10 +305,13 @@ class WorkflowWorker(threading.Thread):
         if command.kind == "generate_exam":
             try:
                 generated = self._controller.generate_exam(command.exam_request)
-            except ExamGenerationError:
+            except ExamGenerationError as exc:
+                message = _model_error_message(exc.code, task="题目") or (
+                    "这次题目未通过质量校验，请点击“生成模拟卷”再试一次。"
+                )
                 self._emit(self._command_event(
                     command, "exam_failed", exam_runs=self._controller.exam_history(),
-                    message="这次题目未通过质量校验，请点击“生成模拟卷”再试一次。",
+                    message=message,
                 ))
                 return
             self._emit(self._command_event(
@@ -536,7 +551,8 @@ class CaptureViewModel:
                 "cli_unavailable": "未找到 Codex CLI：请先安装 Codex，并登录当前 ChatGPT 账号后在恢复任务中重试。",
                 "cli_failed": "Codex CLI 无法完成分析：请确认已登录当前 ChatGPT 账号后在恢复任务中重试。",
             }
-            self.status=messages.get(outcome.error_code, "资料已进入待处理，可在恢复任务中重试。")
+            self.status=(_model_error_message(outcome.error_code)
+                         or messages.get(outcome.error_code, "资料已进入待处理，可在恢复任务中重试。"))
             self.recovered_tasks[outcome.job_id]=UiEvent("recovered_job",outcome=outcome,completion=completion,
                                                        session_generation=self.session_generation, session_id=self.session_id)
         else: self.status="分析完成，已更新知识库。"
@@ -687,8 +703,10 @@ def _window_dimensions(screen_width,screen_height):
 
 
 class LearningAssistantApp:
-    def __init__(self,root,config,worker,*,open_path=None,print_path=None,taskbar_notifier=None):
+    def __init__(self,root,config,worker,*,open_path=None,print_path=None,taskbar_notifier=None,
+                 model_settings=None):
         self.root,self.config,self.worker=root,config,worker; self.vm=CaptureViewModel(); self._open_path=open_path or _open_local_path; self._print_path=print_path or _print_local_path; self._closing=False; self._dialogs={}; self._dialog_context={}; self._poll_after_id=None; self._destroyed=False; self._review_dialog=None; self._learning_center=None; self._page_subject_dialog=None; self._page_subject_context=None
+        self.model_settings=model_settings; self._model_settings_dialog=None
         self._model_progress=None; self._model_progress_operation_id=None
         self._taskbar_notifier=taskbar_notifier or TaskbarNotifier(); self._page_subject_flash_latches=set(); self._active_taskbar_flash_handle=None
         self._preview_source_data=None; self._preview_source_image=None; self._preview_render_size=None; self._preview_resize_after_id=None; self._preview_resample=Image.Resampling.BILINEAR
@@ -712,9 +730,23 @@ class LearningAssistantApp:
         title_box=tk.Frame(header,bg=colors["pink_soft"]); title_box.grid(row=0,column=0,sticky="w",padx=22,pady=(9,8))
         tk.Label(title_box,text="晴子的学习花园",font=("Microsoft YaHei UI",18,"bold"),fg=colors["ink"],bg=colors["pink_soft"]).pack(anchor="w")
         tk.Label(title_box,text="把每天的认真，变成看得见的进步  ✦",font=("Microsoft YaHei UI",9),fg=colors["muted"],bg=colors["pink_soft"]).pack(anchor="w",pady=(1,0))
+        if self.model_settings is not None:
+            model_box=tk.Frame(header,bg=colors["pink_soft"])
+            model_box.grid(row=0,column=1,pady=8,sticky="e")
+            self.model_var=tk.StringVar(master=self.root)
+            self._update_model_label()
+            tk.Label(model_box,textvariable=self.model_var,font=("Microsoft YaHei UI",9,"bold"),
+                     fg=colors["ink"],bg=colors["pink_soft"]).pack(side="left",padx=(0,7))
+            self.model_settings_button=tk.Button(
+                model_box,text="模型设置",command=self.open_model_settings,
+                font=("Microsoft YaHei UI",9,"bold"),padx=10,pady=5,
+                fg="white",bg=colors["pink"],activeforeground="white",
+                activebackground=colors["pink_dark"],relief="solid",borderwidth=1,
+            )
+            self.model_settings_button.pack(side="left")
         self.page_var=tk.StringVar(master=self.root,value="准备拍摄第 1 页")
         tk.Label(header,textvariable=self.page_var,font=("Microsoft YaHei UI",10,"bold"),fg=colors["pink_dark"],bg=colors["card"],padx=12,pady=6,
-                 highlightbackground=colors["line"],highlightthickness=1).grid(row=0,column=1,padx=22,pady=10,sticky="e")
+                 highlightbackground=colors["line"],highlightthickness=1).grid(row=0,column=2,padx=22,pady=10,sticky="e")
 
         body=tk.Frame(self.root,bg=colors["bg"]); body.grid(row=1,column=0,sticky="nsew",padx=16,pady=8)
         body.grid_rowconfigure(0,weight=1); body.grid_columnconfigure(0,weight=1,minsize=500); body.grid_columnconfigure(1,weight=0,minsize=285)
@@ -770,6 +802,35 @@ class LearningAssistantApp:
                              activeforeground=self.colors["disabled_text"],activebackground=self.colors["disabled"],
                              disabledforeground=self.colors["disabled_text"],cursor="arrow",
                              relief="solid",borderwidth=1,highlightbackground=self.colors["disabled"])
+
+    def _update_model_label(self):
+        if self.model_settings is None or not hasattr(self, "model_var"):
+            return
+        label = "DeepSeek" if self.model_settings.snapshot().provider == "deepseek" else "原生 Codex"
+        self.model_var.set(f"当前模型：{label}")
+
+    def open_model_settings(self):
+        if (self.model_settings is None or self._closing or self.vm.busy
+                or self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None
+                or self._review_dialog is not None or self._learning_center is not None):
+            return
+        if self._model_settings_dialog is not None:
+            try:self._model_settings_dialog.window.lift()
+            except tk.TclError:self._model_settings_dialog=None
+            else:return
+        self._model_settings_dialog=ModelSettingsDialog(
+            self.root,self.model_settings,on_saved=self._model_settings_saved,
+        )
+        original_destroy=self._model_settings_dialog.destroy
+        def close_dialog():
+            original_destroy()
+            self._model_settings_dialog=None
+            self._refresh()
+        self._model_settings_dialog.destroy=close_dialog
+
+    def _model_settings_saved(self, _settings):
+        self._update_model_label()
+        self.vm.status="模型设置已保存，将从下一次模型任务开始生效。"
 
     def _on_preview_resize(self,_event=None):
         if self._preview_resize_after_id is not None:
@@ -1136,6 +1197,10 @@ class LearningAssistantApp:
             except Exception:pass
         elif data and resample_changed:self._render_preview()
         page_modal=self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None
+        if self.model_settings is not None and hasattr(self,"model_settings_button"):
+            settings_enabled=(not self._closing and not self.vm.busy and not page_modal
+                              and self._review_dialog is None and self._learning_center is None)
+            self._style_button(self.model_settings_button,settings_enabled)
         pending_review=target.review_count > 0
         states={"capture":self.vm.can_capture and not page_modal,"retake":self.vm.can_retake and not page_modal,"next":self.vm.can_next and not page_modal,"finish":self.vm.can_finish and not page_modal,
                 "review":not page_modal and not self.vm.busy and not self.vm.worker_failed,
@@ -1184,6 +1249,9 @@ class LearningAssistantApp:
         self._finish_model_progress(None, force=True)
         self._stop_taskbar_flash()
         self._close_page_subject_dialog()
+        if self._model_settings_dialog is not None:
+            dialog,self._model_settings_dialog=self._model_settings_dialog,None
+            dialog.destroy()
         if self._review_dialog is not None:
             self.close_reviews(self.vm.review_dialog_id)
         if self._learning_center is not None:

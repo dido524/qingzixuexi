@@ -1,5 +1,6 @@
 from pathlib import Path
 import queue
+import pytest
 
 from qingzi_learning.config import AppConfig
 from qingzi_learning.exams.blueprint import ExamRequest
@@ -242,6 +243,37 @@ def test_exam_validation_failure_is_visible_in_exam_tab(tmp_path: Path) -> None:
     assert view_model.apply_event(event)
     assert view_model.exam_message == event.message
     assert not view_model.busy
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("deepseek_api_key_missing", "模型设置"),
+        ("deepseek_auth_failed", "API Key"),
+        ("deepseek_rate_limited", "额度"),
+        ("deepseek_unavailable", "网络"),
+    ],
+)
+def test_exam_deepseek_failures_are_actionable(tmp_path: Path, code: str, expected: str) -> None:
+    from qingzi_learning.exams.service import ExamGenerationError
+
+    config = AppConfig(tmp_path / "knowledge", ("语文", "数学", "英语"), 1, 2,
+                       tmp_path / "spool", tmp_path / "data")
+    request = ExamRequest("数学", "分数", 40, "适中", 5, False, False)
+
+    class Controller:
+        def __init__(self): self.repo = type("Repo", (), {"close": lambda self: None})()
+        def exam_history(self): return ()
+        def generate_exam(self, _request): raise ExamGenerationError(code)
+
+    worker = WorkflowWorker(config, Controller, events=queue.Queue())
+    worker._controller = Controller()
+    worker.submit("generate_exam", context="learning_center", dialog_id="center", exam_request=request)
+    worker._process(worker._commands.get_nowait())
+
+    event = worker.events.get_nowait()
+    assert event.kind == "exam_failed"
+    assert expected in event.message
 
 
 def test_worker_routes_exam_preview_generation_approval_and_history(tmp_path: Path) -> None:
