@@ -97,6 +97,54 @@ def decision(svc, item, status="incorrect", **kwargs):
                                 expected_version=item.version, **kwargs)
 
 
+def test_new_auto_graded_correct_questions_wait_for_individual_parent_confirmation(repo):
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    original = seed(repo, ("correct", "correct"))
+    auto = replace(original, grading_mode=GradingMode.AUTO_GRADE, questions=tuple(
+        replace(question, answer_bbox=(.1, .2, .3, .1)) for question in original.questions
+    ))
+    KnowledgeUpdater(repo).apply(auto)
+
+    pending = service(repo).list_pending()
+    assert [item.question_id for item in pending] == ["1", "2"]
+    assert [item.original_status for item in pending] == ["correct", "correct"]
+    stats = repo.get_knowledge_stats("语文", "概括主要内容")
+    assert (stats.exposure_count, stats.correct_count, stats.needs_review) == (0, 0, 2)
+
+    decision(service(repo), pending[0], "correct")
+    assert [item.question_id for item in service(repo).list_pending()] == ["2"]
+    stats = repo.get_knowledge_stats("语文", "概括主要内容")
+    assert (stats.exposure_count, stats.correct_count, stats.needs_review) == (1, 1, 1)
+
+
+def test_teacher_evidence_remains_effective_during_model_question_review(repo):
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    original = seed(repo, ("correct", "correct", "correct"))
+    auto = replace(original, grading_mode=GradingMode.AUTO_GRADE, questions=tuple(
+        replace(question, answer_bbox=(.1, .2, .3, .1)) for question in original.questions
+    ))
+    KnowledgeUpdater(repo).apply(auto)
+    assert [item.question_id for item in service(repo).list_pending()] == ["1", "2"]
+    assert repo.get_document("doc")["questions"][2]["status"] == "correct"
+    stats = repo.get_knowledge_stats("语文", "概括主要内容")
+    assert (stats.exposure_count, stats.teacher_correct_count, stats.needs_review) == (1, 1, 2)
+
+
+def test_scoped_review_includes_legacy_unconfirmed_correct_without_other_documents(repo):
+    seed(repo, ("needs_review",), document_id="old")
+    seed(repo, ("correct", "correct"), document_id="new")
+
+    assert [(item.document_id, item.question_id) for item in service(repo).list_pending(("new",))] == [
+        ("new", "1"), ("new", "2")
+    ]
+    assert [(item.document_id, item.question_id) for item in service(repo).list_pending(("old",))] == [
+        ("old", "1")
+    ]
+    assert [(item.document_id, item.question_id) for item in service(repo).list_pending()] == [
+        ("old", "1")
+    ]
+
+
 def test_review_changes_mastery_and_exports_but_preserves_original_evidence(repo):
     original = seed(repo)
     svc = service(repo)

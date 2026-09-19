@@ -204,8 +204,7 @@ SELECT q.document_id, q.question_id, q.question_type, q.page, q.prompt_summary,
        CASE WHEN r.document_id IS NULL OR r.corrected_answer = '' THEN q.reference_answer ELSE r.corrected_answer END AS reference_answer,
        CASE
          WHEN r.document_id IS NOT NULL THEN r.final_status
-         WHEN q.decision_source = 'model_pending'
-              AND q.status IN ('incorrect', 'partial') THEN 'needs_review'
+          WHEN q.decision_source = 'model_pending' THEN 'needs_review'
          ELSE q.status
        END AS status,
        CASE WHEN r.document_id IS NOT NULL THEN 'parent'

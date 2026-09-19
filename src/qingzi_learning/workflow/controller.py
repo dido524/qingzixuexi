@@ -56,6 +56,7 @@ class WorkflowOutcome:
     page_subject_total: int = 0
     annotated_pages: tuple[Path, ...] = ()
     grading_gallery_path: Path | None = None
+    parent_job_id: str | None = None
 
 
 class _WorkflowSuperseded(Exception):
@@ -254,6 +255,7 @@ class WorkflowController:
             except Exception:
                 outcomes[""] = self._recovery_error("", self.config.app_data_root.absolute())
                 return list(outcomes.values())
+            latest_root_job = None
             for job_id in job_ids:
                 try:
                     job = self._require_job(job_id)
@@ -272,6 +274,8 @@ class WorkflowController:
                         job = candidate
                     else:
                         job = self._require_job(job_id)
+                    if not job.payload.get("parent_job_id"):
+                        latest_root_job = job
                     # A transient discovery-side mirror failure may already be repaired.
                     outcomes.pop(job_id, None)
                     cleanup_pending = (job.payload.get("child_document_ids")
@@ -280,10 +284,26 @@ class WorkflowController:
                     if job.state not in {"completed", "capturing"} or job.payload.get("cleanup") or cleanup_pending:
                         outcomes[job_id] = self._outcome(job)
                 except Exception:
+                    latest_root_job = None
                     directory = (root / job_id if re.fullmatch(
                         r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", job_id) else root)
                     outcomes[job_id] = self._recovery_error(job_id, directory)
-            return list(outcomes.values())
+            if (self.config.review_all_model_questions and latest_root_job is not None
+                    and latest_root_job.state == "completed"):
+                # Surface only the newest completed capture from the older app.
+                # Its model-correct questions were saved before the all-question
+                # review policy and would otherwise be invisible after restart.
+                try:
+                    document_ids = (tuple(latest_root_job.payload.get("child_document_ids", ()))
+                                    or (latest_root_job.job_id,))
+                    if self.repo.pending_review_ids(document_ids):
+                        outcomes.setdefault(latest_root_job.job_id, self._outcome(latest_root_job))
+                except Exception:
+                    outcomes[latest_root_job.job_id] = self._recovery_error(
+                        latest_root_job.job_id, root / latest_root_job.job_id)
+            ordered = [outcomes[job_id] for job_id in job_ids if job_id in outcomes]
+            ordered.extend(outcome for job_id, outcome in outcomes.items() if job_id not in job_ids)
+            return ordered
 
     @staticmethod
     def _recovery_error(job_id: str, path: Path) -> WorkflowOutcome:
@@ -1079,7 +1099,8 @@ class WorkflowController:
             page_subject_total=confirmation_total,
             annotated_pages=tuple(Path(path) for path in payload.get("annotated_pages", ())),
             grading_gallery_path=(Path(payload["grading_gallery_path"])
-                                  if payload.get("grading_gallery_path") else None),
+                                   if payload.get("grading_gallery_path") else None),
+            parent_job_id=payload.get("parent_job_id"),
         )
 
     def _spool_guard(self, path: Path) -> None:

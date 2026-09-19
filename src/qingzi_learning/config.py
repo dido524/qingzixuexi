@@ -12,6 +12,7 @@ class AppConfig:
     spool_root: Path
     app_data_root: Path
     subject_confidence_threshold: float = 0.85
+    review_all_model_questions: bool = False
 
 
 def load_config() -> AppConfig:
@@ -23,4 +24,5 @@ def load_config() -> AppConfig:
         camera_pid=0x2C1B,
         spool_root=local / "spool",
         app_data_root=local,
+        review_all_model_questions=True,
     )

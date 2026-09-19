@@ -111,6 +111,7 @@ class _Command:
     exam_request: ExamRequest | None = None
     exam_id: str | None = None
     expected_revision: int | None = None
+    review_scope_id: str | None = None
 
 
 class WorkflowWorker(threading.Thread):
@@ -135,7 +136,7 @@ class WorkflowWorker(threading.Thread):
     def submit(self, kind, *, job_id=None, subject=None, page_number=None, context="active_capture",
                session_generation=None, session_id=None, dialog_id=None, question_id=None,
                final_status=None, corrected_answer="", note="", expected_version=None,
-               exam_request=None, exam_id=None, expected_revision=None) -> str:
+                exam_request=None, exam_id=None, expected_revision=None, review_scope_id=None) -> str:
         operation_id = uuid4().hex
         if kind == "resume_capture":
             generation = session_generation or uuid4().hex
@@ -151,7 +152,7 @@ class WorkflowWorker(threading.Thread):
         self._commands.put(_Command(kind, operation_id, job_id, subject, page_number, context,
                                     generation, identity, dialog_id, question_id, final_status,
                                     corrected_answer, note, expected_version, exam_request,
-                                    exam_id, expected_revision))
+                                     exam_id, expected_revision, review_scope_id))
         return operation_id
 
     def request_shutdown(self) -> None:
@@ -242,22 +243,29 @@ class WorkflowWorker(threading.Thread):
 
     def _review(self, command):
         service = self._controller.review
+        scope = command.review_scope_id
+        if scope is None:
+            document_ids = None
+        else:
+            job = self._controller.repo.get_job(scope)
+            document_ids = ((scope,) if self._controller.repo.get_document(scope) else
+                            tuple(job.payload.get("child_document_ids", ())) if job else ())
         if command.kind == "list_reviews":
-            self._emit(self._command_event(command, "review_list", review_items=service.list_pending()))
+            self._emit(self._command_event(command, "review_list", review_items=service.list_pending(document_ids)))
             return
         try:
             service.confirm_question(command.job_id, command.question_id, command.final_status,
                                      command.corrected_answer, command.note, expected_version=command.expected_version)
         except ValueError:
             # Reload actual pending facts; arbitrary exception text is not shown.
-            self._emit(self._command_event(command, "review_conflict", review_items=service.list_pending(),
+            self._emit(self._command_event(command, "review_conflict", review_items=service.list_pending(document_ids),
                                           message="题目已变化或无法确认，已重新加载。请选择最终状态后再保存。"))
             return
-        job = self._controller.repo.get_job(command.job_id)
+        job = self._controller.repo.get_job(scope or command.job_id)
         outcome = self._controller._outcome(job)
         message = "复核已保存，知识库已更新。" if not job.payload.get("export_pending") else "复核已保存，页面更新未完成，请在恢复任务中重试。"
         self._emit(self._command_event(command, "review_saved", outcome=outcome, completion=self._completion(outcome),
-                                      review_items=service.list_pending(), message=message))
+                                       review_items=service.list_pending(document_ids), message=message))
 
     def _reports(self, command):
         if command.kind == "list_reports":
@@ -444,7 +452,7 @@ class WorkflowWorker(threading.Thread):
             questions = tuple(questions_by_identity.values())
             weak = tuple(dict.fromkeys(p for q in questions if q["status"] in {"incorrect", "partial"} for p in q["knowledge_points"]))[:3]
             return CompletionSummary(folder, len(questions), sum(q["status"] in {"incorrect", "partial"} for q in questions), weak,
-                                     sum(q["status"] == "needs_review" for q in questions), outcome.analysis_markdown,
+                                     len(self._controller.repo.pending_review_ids(tuple(document_ids))), outcome.analysis_markdown,
                                      int(snapshot["summary"]["pending_count"]), outcome.grading_gallery_path)
         except (AttributeError, KeyError, TypeError, ValueError): return CompletionSummary(saved_folder=folder, analysis_details_path=outcome.analysis_markdown, grading_gallery_path=outcome.grading_gallery_path)
 
@@ -555,7 +563,9 @@ class CaptureViewModel:
                          or messages.get(outcome.error_code, "资料已进入待处理，可在恢复任务中重试。"))
             self.recovered_tasks[outcome.job_id]=UiEvent("recovered_job",outcome=outcome,completion=completion,
                                                        session_generation=self.session_generation, session_id=self.session_id)
-        else: self.status="分析完成，已更新知识库。"
+        else:
+            self.status=("分析完成，请逐题确认本次题目；确认后更新知识库。"
+                         if completion and completion.review_count else "分析完成，已更新知识库。")
     def apply_event(self,event, *, force=False):
         # Operation ownership outlives a deferred window. Its durable completion
         # refreshes recovery and releases only its own busy operation; visible
@@ -705,7 +715,7 @@ def _window_dimensions(screen_width,screen_height):
 class LearningAssistantApp:
     def __init__(self,root,config,worker,*,open_path=None,print_path=None,taskbar_notifier=None,
                  model_settings=None):
-        self.root,self.config,self.worker=root,config,worker; self.vm=CaptureViewModel(); self._open_path=open_path or _open_local_path; self._print_path=print_path or _print_local_path; self._closing=False; self._dialogs={}; self._dialog_context={}; self._poll_after_id=None; self._destroyed=False; self._review_dialog=None; self._learning_center=None; self._page_subject_dialog=None; self._page_subject_context=None
+        self.root,self.config,self.worker=root,config,worker; self.vm=CaptureViewModel(); self._open_path=open_path or _open_local_path; self._print_path=print_path or _print_local_path; self._closing=False; self._dialogs={}; self._dialog_context={}; self._poll_after_id=None; self._destroyed=False; self._review_dialog=None; self._review_scope_id=None; self._learning_center=None; self._page_subject_dialog=None; self._page_subject_context=None
         self.model_settings=model_settings; self._model_settings_dialog=None
         self._model_progress=None; self._model_progress_operation_id=None
         self._taskbar_notifier=taskbar_notifier or TaskbarNotifier(); self._page_subject_flash_latches=set(); self._active_taskbar_flash_handle=None
@@ -900,8 +910,12 @@ class LearningAssistantApp:
             self._review_dialog.window.lift(); return
         identity = uuid4().hex
         self.vm.review_dialog_id = identity
+        selected = self._selected_recovery()
+        self._review_scope_id = (selected.outcome.job_id if selected and selected.outcome else
+                                 self.vm.session_id if self.vm.sealed else None)
         self._review_dialog = ReviewDialog(self.root, identity, self._save_review, self.close_reviews, self._open_path)
-        self._submit("list_reviews", "正在读取待确认题目…", context="review_job", dialog_id=identity)
+        self._submit("list_reviews", "正在读取待确认题目…", context="review_job", dialog_id=identity,
+                     review_scope_id=self._review_scope_id)
 
     def open_learning_center(self):
         if (self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None
@@ -964,12 +978,13 @@ class LearningAssistantApp:
             return False
         return self._submit("confirm_review", "正在保存复核结果…", context="review_job", dialog_id=dialog_id,
                             job_id=item.document_id, question_id=item.question_id, final_status=final_status,
-                            corrected_answer=corrected_answer, note=note, expected_version=item.version)
+                            corrected_answer=corrected_answer, note=note, expected_version=item.version,
+                            review_scope_id=self._review_scope_id)
 
     def close_reviews(self, dialog_id):
         if self.vm.review_dialog_id != dialog_id:
             return
-        self.vm.review_dialog_id = None; self.vm.review_items = ()
+        self.vm.review_dialog_id = None; self.vm.review_items = (); self._review_scope_id = None
         dialog, self._review_dialog = self._review_dialog, None
         if dialog is not None: dialog.destroy()
     def retry_selected(self):
@@ -1006,6 +1021,7 @@ class LearningAssistantApp:
         if not self._destroyed and self._poll_after_id is None:self._poll_after_id=self.root.after(50,self.poll_events)
     def poll_events(self):
         self._poll_after_id=None
+        preferred_recovery_id=None
         for source in (self.worker.preview_events,self.worker.events):
             while True:
                 try:event=source.get_nowait()
@@ -1016,6 +1032,14 @@ class LearningAssistantApp:
                         and event.kind != "preview"):
                     self._finish_model_progress(event.operation_id)
                 accepted=self.vm.apply_event(event)
+                if (accepted and event.kind == "recovered_job" and event.outcome is not None
+                        and event.outcome.state in {"completed", "needs_review"}
+                        and event.outcome.parent_job_id is None and event.completion is not None
+                        and event.completion.review_count > 0 and self.vm.session_id is None):
+                    preferred_recovery_id=event.outcome.job_id
+                if (accepted and event.kind == "workflow_outcome" and event.context == "active_capture"
+                        and self.vm.matches_session(event)):
+                    self.pages.selection_clear(0, "end")
                 if accepted and event.kind in {"review_list", "review_saved", "review_conflict"} and self._review_dialog is not None:
                     self._review_dialog.show(self.vm.review_items, self.vm.review_message)
                 elif accepted and event.kind == "worker_error" and event.dialog_id == self.vm.review_dialog_id and self._review_dialog is not None:
@@ -1045,6 +1069,13 @@ class LearningAssistantApp:
                         self._subject_dialog(event.outcome.job_id,"active_capture",event.session_generation,event.session_id)
         self._show_next_recovered_page_subject()
         self._refresh()
+        if preferred_recovery_id is not None:
+            rows=list(self.pages.get(0,"end"))
+            if preferred_recovery_id in rows:
+                self.pages.selection_clear(0,"end")
+                self.pages.selection_set(rows.index(preferred_recovery_id))
+                self.pages.see(rows.index(preferred_recovery_id))
+                self._refresh()
         self._schedule_poll()
 
     def _show_next_recovered_page_subject(self):

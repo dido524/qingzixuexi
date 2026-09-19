@@ -50,8 +50,8 @@ class ReviewService:
                               "decision_source", "original_status", "original_decision_source")),
                           row["review_note"] or "", row["version"])
 
-    def list_pending(self) -> tuple[ReviewItem, ...]:
-        return tuple(self.get_question(*identity) for identity in self.repo.pending_review_ids())
+    def list_pending(self, document_ids: tuple[str, ...] | None = None) -> tuple[ReviewItem, ...]:
+        return tuple(self.get_question(*identity) for identity in self.repo.pending_review_ids(document_ids))
 
     def history(self, document_id: str, question_id: str):
         return self.repo.review_history(document_id, question_id)

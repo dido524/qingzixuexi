@@ -636,6 +636,9 @@ def test_split_parent_completion_aggregates_child_documents_without_cross_child_
             return documents.get(document_id)
         def dashboard_snapshot(self):
             return {"summary": {"pending_count": 2}}
+        def pending_review_ids(self, document_ids):
+            assert document_ids == ("mixed--math", "mixed--english")
+            return ()
 
     controller = type("Controller", (), {"repo": Repo()})()
     worker = WorkflowWorker(config, lambda: controller)
@@ -795,6 +798,17 @@ def test_current_document_summary_excludes_cumulative_library_counts(view_model)
     assert view_model.completion.question_count == 2
     assert view_model.completion.error_count == 1
     assert view_model.completion.library_pending_count == 99
+
+
+def test_new_reviewable_capture_prompts_parent_instead_of_claiming_knowledge_updated(view_model):
+    view_model.begin_work("分析", "finish-op")
+    view_model.apply_event(UiEvent(
+        "workflow_outcome", operation_id="finish-op",
+        outcome=WorkflowOutcome("new", "needs_review", "数学"),
+        completion=CompletionSummary(question_count=5, review_count=5),
+    ))
+    assert "逐题确认" in view_model.status
+    assert "已更新知识库" not in view_model.status
 
 
 def test_worker_preview_queue_is_bounded_and_shutdown_acknowledges_blocked_analysis(config):
@@ -1271,6 +1285,94 @@ def test_analysis_button_opens_parent_review_before_printable_gallery(withdrawn_
     assert app._review_dialog is not None
     assert app.vm.review_dialog_id == app._review_dialog.dialog_id
     assert opened == []
+
+
+def test_new_capture_outcome_clears_old_task_selection_and_reviews_new_task(withdrawn_app, tmp_path):
+    app, opened = withdrawn_app
+    old_folder = tmp_path / "old"; old_folder.mkdir()
+    new_folder = tmp_path / "new"; new_folder.mkdir()
+    app.vm.apply_event(UiEvent(
+        "recovered_job", outcome=WorkflowOutcome("old", "needs_review", "数学"),
+        completion=CompletionSummary(old_folder, review_count=1),
+    ))
+    app._refresh(); _select_recovery(app, "old")
+    assert app._selected_recovery().outcome.job_id == "old"
+
+    app.vm.session_id = "new"
+    app.vm.begin_work("分析", "new-analysis")
+    app.worker.events.put(UiEvent(
+        "workflow_outcome", "new-analysis", target_id="new", session_id="new",
+        session_generation=app.vm.session_generation,
+        outcome=WorkflowOutcome("new", "needs_review", "数学"),
+        completion=CompletionSummary(new_folder, review_count=2),
+    ))
+    app.poll_events()
+
+    assert app._selected_recovery() is None
+    assert app._selected_completion().saved_folder == new_folder
+    app.open_details()
+    assert app._review_dialog is not None
+    assert app._review_scope_id == "new"
+    assert opened == []
+
+
+def test_restart_defaults_analysis_button_to_latest_reviewable_capture(withdrawn_app, tmp_path):
+    app, opened = withdrawn_app
+    folder = tmp_path / "latest"; folder.mkdir()
+    app.worker.events.put(UiEvent(
+        "recovered_job", outcome=WorkflowOutcome("older", "needs_review", "数学"),
+        completion=CompletionSummary(review_count=1),
+    ))
+    app.worker.events.put(UiEvent(
+        "recovered_job", outcome=WorkflowOutcome("latest", "completed", "数学"),
+        completion=CompletionSummary(folder, review_count=2),
+    ))
+    app.poll_events()
+
+    assert app._selected_recovery().outcome.job_id == "latest"
+    app.open_details()
+    assert app._review_scope_id == "latest"
+    assert opened == []
+
+
+def test_restart_selects_newer_pending_capture_over_legacy_completed(withdrawn_app):
+    app, _ = withdrawn_app
+    for job_id, state in (("older", "completed"), ("newer", "needs_review")):
+        app.worker.events.put(UiEvent(
+            "recovered_job", outcome=WorkflowOutcome(job_id, state, "数学"),
+            completion=CompletionSummary(review_count=2),
+        ))
+    app.poll_events()
+    assert app._selected_recovery().outcome.job_id == "newer"
+    app.open_reviews()
+    assert app._review_scope_id == "newer"
+
+
+def test_restart_selects_latest_of_multiple_pending_captures(withdrawn_app):
+    app, _ = withdrawn_app
+    for job_id in ("earlier", "latest"):
+        app.worker.events.put(UiEvent(
+            "recovered_job", outcome=WorkflowOutcome(job_id, "needs_review", "数学"),
+            completion=CompletionSummary(review_count=1),
+        ))
+    app.poll_events()
+    assert app._selected_recovery().outcome.job_id == "latest"
+
+
+def test_restart_selects_split_parent_instead_of_its_child(withdrawn_app):
+    app, _ = withdrawn_app
+    app.worker.events.put(UiEvent(
+        "recovered_job", outcome=WorkflowOutcome(
+            "batch", "needs_review", None, child_document_ids=("batch--math",)),
+        completion=CompletionSummary(review_count=2),
+    ))
+    app.worker.events.put(UiEvent(
+        "recovered_job", outcome=WorkflowOutcome(
+            "batch--math", "needs_review", "数学", parent_job_id="batch"),
+        completion=CompletionSummary(review_count=2),
+    ))
+    app.poll_events()
+    assert app._selected_recovery().outcome.job_id == "batch"
 
 
 def test_saved_folder_visible_immediately_after_capture_and_empty_actions_disabled(withdrawn_app, tmp_path):

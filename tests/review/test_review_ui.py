@@ -8,7 +8,7 @@ import pytest
 
 from test_review_service import repo, seed, service
 from qingzi_learning.camera.devices import CameraBusy
-from qingzi_learning.storage.repository import KnowledgeRepository
+from qingzi_learning.storage.repository import KnowledgeRepository, WorkflowJob
 from qingzi_learning.ui.app import WorkflowWorker, CaptureViewModel, UiEvent, CompletionSummary, LearningAssistantApp
 from qingzi_learning.workflow.controller import WorkflowController, WorkflowOutcome
 
@@ -50,6 +50,115 @@ def test_review_worker_owns_reads_writes_and_returns_updated_pending_and_complet
     finally:
         worker.request_shutdown(); worker.join(timeout=10)
     assert not worker.is_alive()
+
+
+def test_review_worker_stays_in_new_capture_after_each_confirmation(repo):
+    seed(repo, ("needs_review",), document_id="old")
+    seed(repo, ("needs_review", "needs_review"), document_id="new")
+    worker = WorkflowWorker(repo.config, lambda: WorkflowController(
+        repo.config, object(), KnowledgeRepository(repo.config)), camera_factory=camera_unavailable)
+    worker.start()
+    try:
+        listed = take_operation(worker, worker.submit(
+            "list_reviews", job_id="new", review_scope_id="new", context="review_job", dialog_id="dialog-new"))
+        assert [(item.document_id, item.question_id) for item in listed.review_items] == [
+            ("new", "1"), ("new", "2")
+        ]
+        item = listed.review_items[0]
+        saved = take_operation(worker, worker.submit(
+            "confirm_review", job_id=item.document_id, question_id=item.question_id,
+            final_status="incorrect", corrected_answer="正确答案", note="家长确认",
+            expected_version=item.version, review_scope_id="new", context="review_job", dialog_id="dialog-new"))
+        assert [(next_item.document_id, next_item.question_id) for next_item in saved.review_items] == [
+            ("new", "2")
+        ]
+    finally:
+        worker.request_shutdown(); worker.join(timeout=10)
+
+
+def test_completion_offers_legacy_all_correct_capture_for_explicit_review(repo):
+    seed(repo, ("correct", "correct"), document_id="latest")
+    worker = WorkflowWorker(repo.config, lambda: WorkflowController(
+        repo.config, object(), KnowledgeRepository(repo.config)), camera_factory=camera_unavailable)
+    worker._controller = WorkflowController(repo.config, object(), repo)
+    summary = worker._completion(WorkflowOutcome("latest", "completed", "语文"))
+    assert summary.question_count == 2
+    assert summary.review_count == 2
+
+
+def test_review_worker_scopes_split_batch_to_its_children(repo):
+    seed(repo, ("needs_review",), document_id="old")
+    seed(repo, ("needs_review",), document_id="math")
+    seed(repo, ("needs_review",), document_id="english")
+    repo.save_workflow_job(WorkflowJob(
+        "batch", "needs_review", None, False, None,
+        {"child_document_ids": ["math", "english"], "pages": [], "archive_kind": None},
+    ))
+    worker = WorkflowWorker(repo.config, lambda: WorkflowController(
+        repo.config, object(), KnowledgeRepository(repo.config)), camera_factory=camera_unavailable)
+    worker.start()
+    try:
+        listed = take_operation(worker, worker.submit(
+            "list_reviews", review_scope_id="batch", context="review_job", dialog_id="split-dialog"))
+        assert [(item.document_id, item.question_id) for item in listed.review_items] == [
+            ("english", "1"), ("math", "1")
+        ]
+        item = listed.review_items[0]
+        saved = take_operation(worker, worker.submit(
+            "confirm_review", job_id=item.document_id, question_id=item.question_id,
+            final_status="incorrect", corrected_answer="参考答案", note="家长确认",
+            expected_version=item.version, review_scope_id="batch",
+            context="review_job", dialog_id="split-dialog"))
+        assert saved.kind == "review_saved"
+        assert saved.outcome.job_id == "batch"
+        assert saved.completion.review_count == 1
+    finally:
+        worker.request_shutdown(); worker.join(timeout=10)
+
+
+def test_restart_surfaces_latest_legacy_all_correct_capture_for_review(repo, monkeypatch):
+    seed(repo, ("needs_review",), document_id="old")
+    seed(repo, ("correct", "correct"), document_id="latest")
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    controller = WorkflowController(repo.config, object(), repo)
+    monkeypatch.setattr(controller.publication, "current", lambda: True)
+
+    recovered = {outcome.job_id: outcome for outcome in controller.recover_jobs()}
+    assert "latest" in recovered
+    assert recovered["latest"].state == "completed"
+
+
+def test_restart_does_not_prefer_older_legacy_capture_over_new_pending_capture(repo, monkeypatch):
+    seed(repo, ("correct", "correct"), document_id="older")
+    seed(repo, ("needs_review",), document_id="newer")
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    controller = WorkflowController(repo.config, object(), repo)
+    monkeypatch.setattr(controller.publication, "current", lambda: True)
+
+    recovered = controller.recover_jobs()
+    assert [outcome.job_id for outcome in recovered] == ["newer"]
+
+
+def test_restart_isolates_corrupt_journal_with_all_question_review_enabled(repo, monkeypatch):
+    seed(repo, ("needs_review",), document_id="healthy")
+    seed(repo, ("correct",), document_id="corrupt")
+    repo.connection.execute(
+        "UPDATE workflow_jobs SET payload_json = ? WHERE job_id = ?", ("{invalid", "corrupt")
+    )
+    repo.connection.commit()
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    controller = WorkflowController(repo.config, object(), repo)
+    monkeypatch.setattr(controller.publication, "current", lambda: True)
+
+    recovered = {outcome.job_id: outcome for outcome in controller.recover_jobs()}
+    assert recovered["healthy"].state == "needs_review"
+    assert recovered["corrupt"].error_code == "recovery_failed"
+
+
+def test_workflow_job_order_tracks_insertion_when_timestamps_tie(repo):
+    repo.save_workflow_job(WorkflowJob("z-older", "completed", "数学", False, None, {}))
+    repo.save_workflow_job(WorkflowJob("a-newer", "completed", "数学", False, None, {}))
+    assert repo.list_workflow_job_ids() == ["z-older", "a-newer"]
 
 
 def test_stale_review_result_updates_own_recovery_but_cannot_replace_capture_or_dialog(repo):

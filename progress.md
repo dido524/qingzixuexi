@@ -114,3 +114,15 @@
 - Rebuilt PyInstaller package, installed into the existing `C:\Users\Home\Documents\QingziLearningAssistant\app`, restored custom desktop icon, and confirmed installed `--smoke-check` exit `0`.
 - Independent read-only review found no blocking issue; it noted that single-page live validation cannot prove all future/multi-page outputs conform.
 - Pushed the verified repair commit `0aa77f4988b6667c9d30b0e628e6ff8c29c98254` to GitHub `main` by fast-forward.
+
+## Session: 2026-09-19 — New Capture Opens Old Review Page
+- User reports that after completing a new capture, both “本次分析 · 待确认” and “待家长确认” still show the previously failed/older image rather than the new page, preventing per-question confirmation of the new work.
+- App is currently running; diagnostics must remain read-only until the active job and UI routing are understood.
+- Located latest completed math capture `capture-4da51a7ae4f947a6807787c76debea1e` (five model judgments marked correct) and prior math capture `capture-5b49340663744f3f8c860556c083a49d` (needs review).
+- Traced `本次分析` through selected recovered-task completion and `待家长确认` through a global, unfiltered pending-review query; this can surface the older task even immediately after the new capture.
+- User confirmed all model-graded questions, including correct ones, require individual parent confirmation. Added red-then-green tests for all-correct gating, teacher priority, task scope, split children, latest active capture, restart recovery, and explicit status wording.
+- Initial full suite exposed 65 legacy-expectation failures. Introduced a production-only all-question policy flag (`load_config=True`, custom/test `AppConfig=False`) so existing historical workflows remain compatible; second full run reached 674 passes and one fake-repository interface failure, which was fixed.
+- The application was closed before installing; verified live database backup with 11 documents and five latest questions at `C:\Users\Home\Documents\QingziLearningAssistant\backups\knowledge-pre-all-question-review-20260919.sqlite3`.
+- Fresh-context review found two Important restart defects. Added five failing cases, then fixed chronological root-task selection (including same-second inserts), pending-task default selection, split-child exclusion, and corrupt-journal isolation; targeted restart/split suite now passes `10 passed`.
+- Final exact-tree full suite: `684 passed, 1 skipped in 545.96s`; `git diff --check` exit 0 (only Windows line-ending notices).
+- PyInstaller package built successfully and installed to `C:\Users\Home\Documents\QingziLearningAssistant\app\晴子学习助手.exe` with the app closed. Restored the desktop shortcut's `qingzi-photo.ico` icon; installed `--smoke-check` exited 0.

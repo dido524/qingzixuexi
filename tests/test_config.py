@@ -10,3 +10,4 @@ def test_default_config_uses_fixed_knowledge_root(monkeypatch, tmp_path):
     assert cfg.subjects == ("语文", "数学", "英语")
     assert (cfg.camera_vid, cfg.camera_pid) == (0xBC15, 0x2C1B)
     assert cfg.spool_root == tmp_path / "QingziLearningAssistant" / "spool"
+    assert cfg.review_all_model_questions is True

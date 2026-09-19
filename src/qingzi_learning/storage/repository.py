@@ -665,7 +665,7 @@ class KnowledgeRepository:
     def list_workflow_job_ids(self) -> list[str]:
         """List identities without decoding a possibly damaged individual payload."""
         rows = self.connection.execute(
-            "SELECT job_id FROM workflow_jobs ORDER BY created_at, job_id"
+            "SELECT job_id FROM workflow_jobs ORDER BY created_at, rowid"
         ).fetchall()
         return [row["job_id"] for row in rows]
 
@@ -1057,9 +1057,20 @@ class KnowledgeRepository:
         return dict(question, subject=document["subject"], source_path=page["path"],
                     version=f"{fingerprint}:{question['review_revision']}", original=original)
 
-    def pending_review_ids(self) -> tuple[tuple[str, str], ...]:
+    def pending_review_ids(self, document_ids: tuple[str, ...] | None = None) -> tuple[tuple[str, str], ...]:
+        if document_ids is not None and not document_ids:
+            return ()
+        scoped = document_ids is not None
+        where = "status='needs_review'"
+        params: tuple[str, ...] = ()
+        if scoped:
+            where = ("(status='needs_review' OR (original_decision_source='model' "
+                     "AND original_status='correct' AND review_revision=0)) "
+                     f"AND document_id IN ({','.join('?' for _ in document_ids)})")
+            params = document_ids
         return tuple((r[0], r[1]) for r in self.connection.execute(
-            "SELECT document_id, question_id FROM effective_questions WHERE status='needs_review' ORDER BY document_id, page, question_id"))
+            f"SELECT document_id, question_id FROM effective_questions WHERE {where} "
+            "ORDER BY document_id, page, question_id", params))
 
     def review_history(self, document_id: str, question_id: str) -> tuple[dict[str, Any], ...]:
         return tuple(dict(row) for row in self.connection.execute(
@@ -1241,10 +1252,13 @@ class KnowledgeRepository:
                     question.student_answer,
                     question.reference_answer,
                     question.status.value,
-                    ("model_pending" if analysis.grading_mode.value == "auto_grade"
-                     and question.decision_source == "model"
-                     and question.status.value in {"incorrect", "partial"}
-                     and question.answer_bbox is not None else question.decision_source),
+                    ("model_pending" if question.decision_source == "model" and (
+                        self.config.review_all_model_questions or (
+                            analysis.grading_mode.value == "auto_grade"
+                            and question.status.value in {"incorrect", "partial"}
+                            and question.answer_bbox is not None
+                        )
+                    ) else question.decision_source),
                     self._json(question.error_categories),
                     question.confidence,
                     question.reason,

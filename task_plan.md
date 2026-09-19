@@ -4,7 +4,7 @@
 在不削弱现有本地校验、家长确认和知识库安全边界的前提下，为晴子学习助手提供原生 Codex 与 DeepSeek 两种模型选择，并向用户暴露可安全保存的 DeepSeek API 配置界面。
 
 ## Current Phase
-Complete
+Phase 11: active-capture versus recovered-task review routing
 
 ## Phases
 
@@ -68,6 +68,13 @@ Complete
 - [x] Add a failing regression test, implement the smallest fix, and verify it
 - [x] Rebuild/install safely, test the installed app, and push the fix to GitHub
 - **Status:** complete
+
+### Phase 11: Active-Capture Review Routing
+- [x] Identify the newest captured document and whether analysis/review data was actually saved
+- [x] Reproduce why both “本次分析 · 待确认” and “待家长确认” open an older page
+- [x] Add failing UI/review regression tests and repair the routing without weakening per-question confirmation
+- [ ] Run full verification, rebuild/install safely, preserve user data/icon, and push to GitHub
+- **Status:** in_progress
 
 ## Key Questions
 1. How does the current model schema represent OCR text, question status, and page identity?
