@@ -62,7 +62,9 @@ function Test-DeliveryPackage([string]$Directory) {
     foreach ($resource in @(
         'qingzi_learning\schema\analysis-result.schema.json',
         'qingzi_learning\schema\analysis-transport.schema.json',
-        'qingzi_learning\storage\schema.sql'
+        'qingzi_learning\storage\schema.sql',
+        'qingzi_learning\curriculum\graphs\primary_math_v1.json',
+        'qingzi_learning\curriculum\mappings\bnu_math_g5_upper_2024.json'
     )) {
         $path = Join-Path $internal $resource
         if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Test-ReparsePoint $path)) {

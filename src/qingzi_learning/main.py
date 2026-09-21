@@ -38,6 +38,7 @@ from qingzi_learning.camera.devices import (
 )
 from qingzi_learning.config import load_config
 from qingzi_learning.curriculum.catalog import load_catalogs
+from qingzi_learning.curriculum.graph_exporter import MathKnowledgeGraphExporter
 from qingzi_learning.camera.quality import check_image_quality
 from qingzi_learning.export.safe_write import atomic_write, atomic_write_bytes, is_reparse_point
 from qingzi_learning.ui.camera_process import CameraProcess
@@ -168,6 +169,7 @@ def _smoke_check() -> int:
         temporary_root = Path(directory)
         config = replace(
             load_config(),
+            knowledge_root=temporary_root / "knowledge",
             app_data_root=temporary_root,
             spool_root=temporary_root / "spool",
         )
@@ -176,6 +178,20 @@ def _smoke_check() -> int:
             repository.connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='documents'"
             ).fetchone()
+            panorama, explorer = MathKnowledgeGraphExporter(repository).export()
+            marker = '<script type="application/json" id="graph-data">'
+            payloads = []
+            for page in (panorama, explorer):
+                text = page.read_text(encoding="utf-8")
+                before, separator, remainder = text.partition(marker)
+                payload, closing, after = remainder.partition("</script>")
+                if not separator or not closing or not payload:
+                    print("打包检查失败：数学知识图谱页面数据缺失。")
+                    return 2
+                payloads.append(payload)
+            if payloads[0] != payloads[1]:
+                print("打包检查失败：数学知识图谱双视图数据不一致。")
+                return 2
         finally:
             repository.close()
     try:
@@ -192,7 +208,7 @@ def _smoke_check() -> int:
     except AnalysisError:
         print("Codex CLI 未找到：请先安装 Codex 并登录当前 ChatGPT 账号后再进行分析。")
         return 3
-    print(f"打包检查通过：Schema 已包含，{selected} 配置可用；未打开摄像头，也未调用分析。")
+    print(f"打包检查通过：Schema、数学图谱和课程映射已包含，{selected} 配置可用；未打开摄像头，也未调用分析。")
     return 0
 
 

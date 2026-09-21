@@ -12,7 +12,6 @@ from pathlib import Path
 import shutil
 import subprocess
 
-
 def _root() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -53,6 +52,99 @@ def test_build_script_packages_required_schemas_and_windows_runtime_dependencies
     assert "-m pytest -q" in text
 
 
+def test_package_contract_includes_math_graph_and_mapping_data() -> None:
+    root = _root()
+    graph = root / "src" / "qingzi_learning" / "curriculum" / "graphs" / "primary_math_v1.json"
+    mapping = root / "src" / "qingzi_learning" / "curriculum" / "mappings" / "bnu_math_g5_upper_2024.json"
+    assert graph.is_file()
+    assert mapping.is_file()
+
+    build = _script(root / "scripts" / "build.ps1")
+    installer = _script(root / "scripts" / "install_desktop_shortcut.ps1")
+    assert "curriculum\\graphs" in build
+    assert "curriculum\\mappings" in build
+    assert "qingzi_learning\\curriculum\\graphs\\primary_math_v1.json" in installer
+    assert "qingzi_learning\\curriculum\\mappings\\bnu_math_g5_upper_2024.json" in installer
+
+
+def test_verifier_rejects_external_assets_and_broken_links(tmp_path: Path) -> None:
+    from scripts.verify_math_knowledge_graph import verify_graph_pages
+
+    payload = {
+        "graphId": "test",
+        "nodes": {
+            "concept-a": {
+                "mastery": {"evidence_count": 1},
+            },
+        },
+        "edges": [
+            {
+                "source_id": "concept-a",
+                "target_id": "concept-b",
+                "relation": "depends_on",
+                "importance": 3,
+            },
+        ],
+        "audit": [
+            {"label": "小数乘法", "status": "confirmed", "evidence_count": 1},
+            {"label": "英语语法", "status": "cross_subject", "evidence_count": 2},
+        ],
+    }
+    import json
+
+    encoded = json.dumps(payload, ensure_ascii=False)
+    page_text = (
+        '<script src="https://cdn.example.test/graph.js"></script>'
+        '<a href="missing-note.md">说明</a>'
+        f'<script type="application/json" id="graph-data">{encoded}</script>'
+    )
+    pages = []
+    for name in ("panorama.html", "explorer.html"):
+        page = tmp_path / name
+        page.write_text(page_text, encoding="utf-8")
+        pages.append(page)
+
+    result = verify_graph_pages(tmp_path, pages)
+
+    assert not result.ok
+    assert {"external_asset", "broken_link"} <= set(result.error_codes)
+    assert result.cross_subject_count == 1
+    assert result.important_cross_link_count == 1
+
+
+def test_verifier_requires_identical_payloads_and_no_quarantine_leakage(tmp_path: Path) -> None:
+    from scripts.verify_math_knowledge_graph import verify_graph_pages
+
+    first = {
+        "graphId": "test",
+        "nodes": {"concept-a": {"mastery": {"evidence_count": 3}}},
+        "edges": [],
+        "audit": [
+            {"label": "小数乘法", "status": "confirmed", "evidence_count": 1},
+            {"label": "未知竞赛标签", "status": "unmapped", "evidence_count": 2},
+        ],
+    }
+    second = {**first, "graphId": "other"}
+    import json
+
+    pages = []
+    for name, payload in (("panorama.html", first), ("explorer.html", second)):
+        page = tmp_path / name
+        page.write_text(
+            '<script type="application/json" id="graph-data">'
+            + json.dumps(payload, ensure_ascii=False)
+            + "</script>",
+            encoding="utf-8",
+        )
+        pages.append(page)
+
+    result = verify_graph_pages(tmp_path, pages)
+
+    assert not result.ok
+    assert {"payload_mismatch", "evidence_leakage"} <= set(result.error_codes)
+    assert result.unmapped_count == 1
+
+
 def test_delivery_assets_define_a_real_icon_and_fixed_safe_install_location() -> None:
     root = _root()
     assert (root / "assets" / "qingzi-learning-assistant.ico").is_file()
@@ -81,6 +173,7 @@ def test_smoke_check_opens_and_closes_a_temporary_real_repository(monkeypatch) -
     from qingzi_learning import main
 
     created = []
+    graph_exports = []
     real_repository = main.KnowledgeRepository
 
     class TrackingRepository(real_repository):
@@ -95,12 +188,30 @@ def test_smoke_check_opens_and_closes_a_temporary_real_repository(monkeypatch) -
             self.closed = True
             super().close()
 
+    class TrackingGraphExporter:
+        def __init__(self, repository):
+            graph_exports.append(repository.config.knowledge_root)
+
+        def export(self):
+            graph_exports[-1].mkdir(parents=True, exist_ok=True)
+            pages = (
+                graph_exports[-1] / "数学知识全景脑图.html",
+                graph_exports[-1] / "数学掌握知识图谱.html",
+            )
+            payload = '<script type="application/json" id="graph-data">{}</script>'
+            for page in pages:
+                page.write_text(payload, encoding="utf-8")
+            return pages
+
     monkeypatch.setattr(main.shutil, "which", lambda _name: "codex.cmd")
     monkeypatch.setattr(main, "resolve_codex_cli", lambda: "codex.cmd")
     monkeypatch.setattr(main, "KnowledgeRepository", TrackingRepository)
+    monkeypatch.setattr(main, "MathKnowledgeGraphExporter", TrackingGraphExporter)
     assert main._smoke_check() == 0
     assert created
     assert created[0].schema_exists and created[0].closed
+    assert len(graph_exports) == 1
+    assert graph_exports[0] != main.load_config().knowledge_root
 
 
 def test_windows_scripts_have_utf8_bom_and_parse_in_each_installed_shell() -> None:
@@ -142,6 +253,12 @@ def test_installer_rolls_back_old_app_shortcut_and_leaves_spool_on_injected_fail
     (internal / "storage" / "schema.sql").write_text("CREATE TABLE smoke(id INTEGER);", encoding="utf-8")
     for name in ("PIL", "cv2", "tkinter", "multiprocessing"):
         (package / "_internal" / name).mkdir()
+    graph_dir = internal / "curriculum" / "graphs"
+    mapping_dir = internal / "curriculum" / "mappings"
+    graph_dir.mkdir(parents=True)
+    mapping_dir.mkdir(parents=True)
+    (graph_dir / "primary_math_v1.json").write_text("{}", encoding="utf-8")
+    (mapping_dir / "bnu_math_g5_upper_2024.json").write_text("{}", encoding="utf-8")
     system_exe = Path(os.environ["WINDIR"]) / "System32" / "notepad.exe"
     shutil.copy2(system_exe, package / "晴子学习助手.exe")
 

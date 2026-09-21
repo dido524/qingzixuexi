@@ -8,6 +8,7 @@ import pytest
 from qingzi_learning.config import AppConfig
 from qingzi_learning.curriculum.graph_exporter import MathKnowledgeGraphExporter
 from qingzi_learning.storage.repository import KnowledgeRepository
+from scripts.verify_math_knowledge_graph import verify_graph_pages
 
 
 @pytest.fixture
@@ -44,6 +45,19 @@ def test_exporter_publishes_two_pages_from_one_payload(repo):
     assert _payload(panorama.read_text("utf-8")) == _payload(explorer.read_text("utf-8"))
     assert exporter.expected_paths() <= set(panorama.parent.iterdir())
     assert all(path.is_file() for path in exporter.expected_paths())
+
+
+def test_exported_pages_pass_offline_release_verifier(repo):
+    exporter = MathKnowledgeGraphExporter(repo)
+    panorama, explorer = exporter.export()
+
+    result = verify_graph_pages(repo.config.knowledge_root, (panorama, explorer))
+
+    assert result.ok, result
+    assert result.node_count >= 50
+    assert result.important_cross_link_count >= 1
+    assert result.broken_links == ()
+    assert result.external_assets == ()
 
 
 def test_obsidian_notes_link_relations_sources_and_preserve_parent_edits(repo):
