@@ -203,6 +203,48 @@ def test_model_error_waits_for_parent_before_entering_effective_error_bank(
     assert repo.get_knowledge_stats("数学", "分数除法").exposure_count == 0
 
 
+def test_confirmed_knowledge_point_evidence_excludes_pending_and_low_confidence_model(
+    repo: KnowledgeRepository, analysis: AnalysisResult
+) -> None:
+    pending = replace(
+        analysis,
+        document_id="pending-doc",
+        grading_mode=GradingMode.AUTO_GRADE,
+        questions=(replace(
+            analysis.questions[0], decision_source="model",
+            status=QuestionStatus.INCORRECT, answer_bbox=(.2, .3, .4, .1),
+        ),),
+    )
+    low_confidence = replace(
+        analysis,
+        document_id="low-confidence-doc",
+        questions=(replace(
+            analysis.questions[0], decision_source="model",
+            status=QuestionStatus.CORRECT, confidence=.42,
+        ),),
+    )
+    parent = replace(pending, document_id="parent-doc")
+    for item in (pending, low_confidence, parent):
+        repo.create_document(
+            document_id=item.document_id,
+            subject="数学",
+            document_type="作业",
+            pages=((2, f"C:/spool/{item.document_id}.jpg", "b" * 64),),
+        )
+        repo.save_analysis(item)
+    review = repo.review_question("parent-doc", "4")
+    repo.confirm_review_and_recompute(
+        "parent-doc", "4", "incorrect", "18", "家长确认",
+        expected_version=review["version"], now=datetime(2026, 9, 22, tzinfo=timezone.utc),
+    )
+
+    rows = repo.confirmed_knowledge_point_evidence("数学", "分数除法")
+
+    assert [(row["document_id"], row["decision_source"]) for row in rows] == [
+        ("parent-doc", "parent"),
+    ]
+
+
 def test_saving_analysis_replaces_old_question_knowledge_point_links(
     repo: KnowledgeRepository, stored_analysis: AnalysisResult
 ) -> None:

@@ -90,7 +90,7 @@ class MathKnowledgeGraphExporter:
             concept_id = item.concept_ids[0]
             evidence = model["nodes"][concept_id]["mastery"].setdefault("evidence", [])
             seen = seen_by_concept.setdefault(concept_id, set())
-            for row in self.repo.knowledge_point_evidence("数学", item.label):
+            for row in self.repo.confirmed_knowledge_point_evidence("数学", item.label):
                 document_id = str(row.get("document_id", ""))
                 question_id = str(row.get("question_id", ""))
                 page = row.get("page")

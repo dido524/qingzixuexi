@@ -78,5 +78,7 @@ def test_explorer_shows_repository_trend_and_evidence_links():
     ]
     page = render_explorer_page(model)
     assert "下降" in page
+    assert "累计走势 ${trendLabel(node.mastery.trend)}" in page
+    assert 'steady:"稳定"' in page
     assert "evidence.map" in page
     assert "href" in page

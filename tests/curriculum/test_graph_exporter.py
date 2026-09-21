@@ -96,7 +96,7 @@ def test_explorer_payload_links_confirmed_evidence_without_question_text(repo, m
     monkeypatch.setattr(repo, "export_subject_snapshot", lambda subject: snapshot)
     monkeypatch.setattr(
         repo,
-        "knowledge_point_evidence",
+        "confirmed_knowledge_point_evidence",
         lambda subject, label: [{
             "document_id": "doc-1",
             "question_id": "q1",

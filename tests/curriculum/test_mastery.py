@@ -137,7 +137,7 @@ def test_current_book_mappings_are_explicit_and_validated():
     )
 
 
-def test_repository_owned_trend_is_preserved_without_invented_recent_count():
+def test_repository_owned_cumulative_trend_requires_five_confirmed_samples():
     projection = build_mastery_projection(
         load_math_graph(),
         math_snapshot([point("小数乘法", exposure_count=7, trend="declining")]),
@@ -146,6 +146,13 @@ def test_repository_owned_trend_is_preserved_without_invented_recent_count():
     mastery = projection.by_concept["number-decimal-multiply"]
     assert mastery.recent_count == 0
     assert mastery.trend == "declining"
+
+    too_small = build_mastery_projection(
+        load_math_graph(),
+        math_snapshot([point("小数乘法", exposure_count=1, trend="declining")]),
+        now=NOW,
+    )
+    assert too_small.by_concept["number-decimal-multiply"].trend == "unknown"
 
 
 def test_mapping_directory_loads_multiple_provider_neutral_catalogs(tmp_path):

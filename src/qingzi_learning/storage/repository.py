@@ -1670,6 +1670,33 @@ class KnowledgeRepository:
             )
         ]
 
+    def confirmed_knowledge_point_evidence(
+        self, subject: str, knowledge_point: str
+    ) -> list[dict[str, Any]]:
+        """Return only evidence that is eligible for mastery statistics."""
+        self._validate_subject(subject)
+        return [
+            dict(row)
+            for row in self.connection.execute(
+                """
+                SELECT documents.document_id, questions.question_id, questions.page,
+                       questions.prompt_summary, questions.status, questions.decision_source,
+                       questions.reason, pages.path AS source_path
+                FROM question_knowledge_points AS links
+                JOIN effective_questions AS questions ON questions.document_id = links.document_id
+                    AND questions.question_id = links.question_id
+                JOIN documents ON documents.document_id = questions.document_id
+                LEFT JOIN pages ON pages.document_id = questions.document_id
+                    AND pages.page_number = questions.page
+                WHERE documents.subject = ? AND links.knowledge_point = ?
+                    AND questions.status != 'needs_review'
+                    AND (questions.confidence >= 0.80 OR questions.decision_source = 'parent')
+                ORDER BY documents.created_at, documents.document_id, questions.page, questions.question_id
+                """,
+                (subject, knowledge_point),
+            )
+        ]
+
     def _subject_export_knowledge_points(self, subject: str) -> list[dict[str, Any]]:
         """Include linked points even while a recoverable job has not built mastery stats yet."""
         rows = {item["knowledge_point"]: item for item in self._knowledge_point_rows(subject)}

@@ -114,6 +114,30 @@ def test_verifier_rejects_external_assets_and_broken_links(tmp_path: Path) -> No
     assert result.important_cross_link_count == 1
 
 
+def test_verifier_rejects_protocol_relative_css_and_script_network_calls(tmp_path: Path) -> None:
+    from scripts.verify_math_knowledge_graph import verify_graph_pages
+
+    import json
+
+    payload = {"graphId": "test", "nodes": {}, "edges": [], "audit": []}
+    text = (
+        '<style>@import url("//cdn.example.test/x.css");</style>'
+        '<script>fetch("//cdn.example.test/data.json");</script>'
+        f'<script type="application/json" id="graph-data">{json.dumps(payload)}</script>'
+    )
+    pages = []
+    for name in ("panorama.html", "explorer.html"):
+        page = tmp_path / name
+        page.write_text(text, encoding="utf-8")
+        pages.append(page)
+
+    result = verify_graph_pages(tmp_path, pages)
+
+    assert not result.ok
+    assert "external_asset" in result.error_codes
+    assert result.external_assets
+
+
 def test_verifier_requires_identical_payloads_and_no_quarantine_leakage(tmp_path: Path) -> None:
     from scripts.verify_math_knowledge_graph import verify_graph_pages
 

@@ -99,8 +99,9 @@ def _inspect_links(
     if external:
         errors.append("external_asset")
     if re.search(
-        r"(?:@import\s+(?:url\()?\s*[\"']?https?://|"
-        r"url\(\s*[\"']?https?://|(?:fetch|WebSocket)\s*\(\s*[\"']https?://)",
+        r"(?:@import\s+(?:url\()?\s*|url\(\s*|"
+        r"(?:fetch|WebSocket|EventSource)\s*\(\s*|\.open\([^,]+,\s*)"
+        r"[\"']?(?:https?:)?//",
         text,
         re.IGNORECASE,
     ):

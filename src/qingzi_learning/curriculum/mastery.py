@@ -185,7 +185,7 @@ def build_mastery_projection(
             1.0, (bucket["correct"] + 0.5 * bucket["partial"]) / exposure
         )
         state = _mastery_state(exposure, rate)
-        trend = bucket["trends"][-1] if bucket["trends"] else "unknown"
+        trend = bucket["trends"][-1] if exposure >= 5 and bucket["trends"] else "unknown"
         projected[concept_id] = ConceptMastery(
             concept_id=concept_id,
             state=state,
