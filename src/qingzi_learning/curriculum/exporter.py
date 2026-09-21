@@ -21,9 +21,11 @@ def _md(value: str) -> str:
 
 
 class CurriculumExporter:
-    def __init__(self, paths: KnowledgePaths, catalog: dict | None = None) -> None:
+    def __init__(self, paths: KnowledgePaths, catalog: dict | None = None,
+                 *, graph_backlink: bool = False) -> None:
         self.paths = paths
         self.catalog = validate_catalog(catalog) if catalog is not None else load_catalog()
+        self.graph_backlink = graph_backlink
         if self.catalog["subject"] not in paths.config.subjects:
             raise ValueError("课程科目不在知识库内")
 
@@ -124,10 +126,9 @@ class CurriculumExporter:
             for edge in self.catalog["edges"])
         c = self.catalog
         edition_note = "（封面审定信息，不代表印次）" if c["catalog_id"] == "bnu-math-g5-upper-2024-review" else ""
-        graph_index = self.paths.knowledge_graph_file(c["subject"], "primary-math-v1", "系统知识图谱总览.md")
         graph_link = (
             f'<p><a href="{quote("../primary-math-v1/系统知识图谱总览.md", safe="/.")}">打开双视图数学知识图谱</a></p>'
-            if graph_index.is_file() else ""
+            if self.graph_backlink else ""
         )
         return f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(c["title"])}</title><style>
 body{{background:#f5f8fb;color:#193c54;font:16px/1.6 "Microsoft YaHei",sans-serif;margin:0}}main{{max-width:1200px;margin:auto;padding:26px}}h1{{font-size:27px;margin-bottom:6px}}p,small{{color:#587185}}.panel{{background:white;border:1px solid #d8e3eb;border-radius:14px;padding:20px;margin:18px 0;overflow-x:auto}}svg{{max-width:100%;height:auto;min-width:800px}}svg a{{text-decoration:none}}svg a:hover rect{{stroke:#207da6;stroke-width:2}}.key{{display:flex;gap:20px;flex-wrap:wrap}}.dash{{color:#d47743}}a{{color:#176b9a}}li{{margin:8px 0}}@media(max-width:850px){{main{{padding:12px}}}}

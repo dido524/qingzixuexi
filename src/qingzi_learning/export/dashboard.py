@@ -27,7 +27,10 @@ class DashboardExporter:
         from qingzi_learning.curriculum.catalog import load_catalogs
         from qingzi_learning.curriculum.exporter import CurriculumExporter
         from qingzi_learning.curriculum.graph_exporter import MathKnowledgeGraphExporter
-        self.curricula = [CurriculumExporter(self.paths, catalog)
+        self.curricula = [CurriculumExporter(
+                              self.paths, catalog,
+                              graph_backlink=(catalog["subject"] == "数学" and "数学" in repo.config.subjects),
+                          )
                           for catalog in (curriculum_catalogs if curriculum_catalogs is not None else load_catalogs())
                           if catalog["subject"] in repo.config.subjects]
         self.math_graph = MathKnowledgeGraphExporter(repo, self.paths) if "数学" in repo.config.subjects else None
@@ -178,6 +181,7 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
                 body = '<p class="empty">暂无重点短板。</p>'
             if subject == "数学" and self.math_graph is not None:
                 body = (
+                    '<p class="meta">数学课程知识图已升级为两个互补视图：</p>'
                     '<div class="graph-view-cards">'
                     f'<a class="graph-view-card" href="{self._href(self.math_graph.panorama_path())}"><strong>数学知识全景脑图</strong><span>给孩子看知识之间怎样连接</span></a>'
                     f'<a class="graph-view-card" href="{self._href(self.math_graph.explorer_path())}"><strong>数学掌握知识图谱</strong><span>按短板、年级和课程筛选</span></a>'

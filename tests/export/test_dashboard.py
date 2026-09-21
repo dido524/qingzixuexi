@@ -69,6 +69,30 @@ def test_math_knowledge_map_links_photo_grounded_course_graph(dashboard: Dashboa
     assert "双视图数学知识图谱" in legacy.read_text("utf-8")
 
 
+def test_dashboard_graph_publication_is_byte_stable_across_retries(
+    dashboard: DashboardExporter,
+) -> None:
+    from qingzi_learning.export.publication import OutputBatch
+
+    root = dashboard.paths.knowledge_root.absolute()
+    legacy = dashboard.curricula[0].entry_path().absolute()
+    relative = legacy.relative_to(root).as_posix()
+    first_batch = OutputBatch(root)
+    with first_batch:
+        dashboard.export()
+    first = first_batch.files[relative][0].read_bytes()
+    first_batch.cleanup()
+
+    dashboard.math_graph.export()
+    second_batch = OutputBatch(root)
+    with second_batch:
+        dashboard.export()
+    second = second_batch.files[relative][0].read_bytes()
+    second_batch.cleanup()
+
+    assert first == second
+
+
 def test_dashboard_publishes_school_and_enrichment_catalogs_independently(repo: KnowledgeRepository) -> None:
     from copy import deepcopy
     from qingzi_learning.curriculum.catalog import load_catalog
