@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "catalog_id": "bnu-math-g5-upper-2024-review",
+  "mappings": [
+    {"source_id":"bnu-g5u-u01","source_label":"小数的再认识和加减法","source_type":"textbook","target_ids":["number-decimals","number-decimal-add-subtract"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确包含小数再认识和加减法"},
+    {"source_id":"bnu-g5u-u02","source_label":"三角形的再认识","source_type":"textbook","target_ids":["geometry-triangles"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应三角形"},
+    {"source_id":"bnu-g5u-p01","source_label":"小小设计师","source_type":"textbook","target_ids":["practice-design"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应图形设计活动"},
+    {"source_id":"bnu-g5u-u03","source_label":"小数乘法","source_type":"textbook","target_ids":["number-decimal-multiply"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应小数乘法"},
+    {"source_id":"bnu-g5u-u04","source_label":"用字母表示（一）","source_type":"textbook","target_ids":["relation-symbols"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应用字母表示数"},
+    {"source_id":"bnu-g5u-u05","source_label":"多边形的面积","source_type":"textbook","target_ids":["geometry-polygons","geometry-area"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应多边形面积"},
+    {"source_id":"bnu-g5u-m01","source_label":"鸡兔同笼","source_type":"textbook","target_ids":["relation-application-model"],"relation":"curriculum_covers","status":"pending","basis":"目录标题显示综合问题，但具体采用的模型方法需教材内页核实"},
+    {"source_id":"bnu-g5u-u06","source_label":"图形的位置与运动（一）","source_type":"textbook","target_ids":["theme-position-movement"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应位置与运动主题，细分内容暂不臆测"},
+    {"source_id":"bnu-g5u-u07","source_label":"倍数与因数","source_type":"textbook","target_ids":["number-factors-multiples"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应因数与倍数"},
+    {"source_id":"bnu-g5u-u08","source_label":"可能性","source_type":"textbook","target_ids":["statistics-possibility"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应可能性"},
+    {"source_id":"bnu-g5u-p02","source_label":"多少落叶能铺满","source_type":"textbook","target_ids":["geometry-area","theme-activities"],"relation":"curriculum_covers","status":"pending","basis":"目录标题提示面积实践活动，具体知识和活动要求需教材内页核实"},
+    {"source_id":"bnu-g5u-r01","source_label":"总复习","source_type":"textbook","target_ids":["theme-number-operations","theme-quantity-relations","theme-shapes-measure","theme-position-movement","theme-randomness"],"relation":"curriculum_covers","status":"pending","basis":"总复习范围应覆盖本册内容，但目录没有列出细项"}
+  ]
+}
