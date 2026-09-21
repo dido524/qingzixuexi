@@ -59,10 +59,14 @@ def test_dashboard_is_self_contained_and_marks_future_actions(
 
 def test_math_knowledge_map_links_photo_grounded_course_graph(dashboard: DashboardExporter) -> None:
     page = dashboard.export().read_text("utf-8")
-    assert "数学课程知识图" in page
+    assert "数学知识全景脑图" in page
+    assert "数学掌握知识图谱" in page
+    assert "教材目录证据页" in page
     assert "bnu-math-g5-upper-2024-review" in page
     assert "教材目录确认" in page
     assert all(path.is_file() for path in dashboard.expected_paths())
+    legacy = next(path for path in dashboard.expected_paths() if path.name == "课程知识图.html")
+    assert "双视图数学知识图谱" in legacy.read_text("utf-8")
 
 
 def test_dashboard_publishes_school_and_enrichment_catalogs_independently(repo: KnowledgeRepository) -> None:

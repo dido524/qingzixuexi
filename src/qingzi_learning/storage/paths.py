@@ -70,6 +70,10 @@ class KnowledgePaths:
         directory.mkdir(parents=True, exist_ok=True)
         return self._contained(directory / filename, tree.subject_root)
 
+    def knowledge_graph_file(self, subject: str, graph_id: str, filename: str) -> Path:
+        """A guarded graph export path beside versioned curriculum catalogs."""
+        return self.curriculum_file(subject, graph_id, filename)
+
     def report_directory(
         self, year: str | int, month: str | int, report_id: str
     ) -> Path:

@@ -26,14 +26,18 @@ class DashboardExporter:
         self.markdown = MarkdownExporter(repo, self.paths)
         from qingzi_learning.curriculum.catalog import load_catalogs
         from qingzi_learning.curriculum.exporter import CurriculumExporter
+        from qingzi_learning.curriculum.graph_exporter import MathKnowledgeGraphExporter
         self.curricula = [CurriculumExporter(self.paths, catalog)
                           for catalog in (curriculum_catalogs if curriculum_catalogs is not None else load_catalogs())
                           if catalog["subject"] in repo.config.subjects]
+        self.math_graph = MathKnowledgeGraphExporter(repo, self.paths) if "数学" in repo.config.subjects else None
 
     def export(self) -> Path:
         # Create every linked first-version Markdown destination before publishing HTML links.
         for subject in self.repo.config.subjects:
             self.markdown.export_subject(subject)
+        if self.math_graph is not None:
+            self.math_graph.export()
         for curriculum in self.curricula:
             curriculum.export()
         snapshot = self.repo.dashboard_snapshot()
@@ -57,11 +61,15 @@ class DashboardExporter:
             paths.update(self.markdown.expected_paths(subject))
         for curriculum in self.curricula:
             paths.update(curriculum.expected_paths())
+        if self.math_graph is not None:
+            paths.update(self.math_graph.expected_paths())
         return paths
 
     def parent_note_paths(self) -> set[Path]:
-        return {path for curriculum in self.curricula
-                for path in curriculum.parent_note_paths()}
+        paths = {path for curriculum in self.curricula for path in curriculum.parent_note_paths()}
+        if self.math_graph is not None:
+            paths.update(self.math_graph.parent_note_paths())
+        return paths
 
     def _render(
         self,
@@ -95,6 +103,7 @@ aside {{ position:fixed;inset:0 auto 0 0;width:220px;padding:28px 20px;backgroun
 main {{ max-width:1250px;margin-left:220px;padding:30px; }} h2 {{ margin:34px 0 14px;font-size:21px; }} .meta,.subtitle {{ color:var(--muted);font-size:13px; }} .cards {{ display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px; }} .card,.panel {{ background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px; }} main > section.panel {{ margin-top:18px; }} .number {{ font-size:28px;font-weight:700;margin:4px 0; }}
 table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line); }} th,td {{ text-align:left;padding:12px;border-bottom:1px solid var(--line); }} th {{ background:#edf4f9; }} ul {{ margin:0;padding-left:20px; }} li {{ margin:8px 0; }} a {{ color:var(--accent); }} .future {{ color:var(--muted); }} .pill {{ display:inline-block;padding:2px 8px;border-radius:999px;background:#fff2df;color:#8b4b0a;font-size:12px; }}
 .weak-subjects {{ display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px; }} .weak-subject {{ min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:#f9fbfd; }} .weak-subject h3 {{ margin:0 0 10px;font-size:17px;color:var(--accent); }} .weak-subject .empty {{ margin:0;color:var(--muted); }}
+.graph-view-cards {{ display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0; }} .graph-view-card {{ display:block;padding:12px;border:1px solid #cbd9ed;border-radius:10px;background:#f4f7ff;text-decoration:none; }} .graph-view-card strong {{ display:block;color:#304f91; }}
 @media (max-width:1050px) {{ .weak-subjects {{ grid-template-columns:1fr; }} }} @media (max-width:850px) {{ aside {{ position:static;width:auto; }} main {{ margin:0;padding:20px; }} .cards {{ grid-template-columns:1fr; }} }}
 </style></head><body>
 <aside><h1>晴子学习知识库</h1><nav><a href="#概览">学习总览</a>{self._subject_nav()}<a href="#错题本">错题本</a><a href="#知识点地图">知识点地图</a><a href="#学习报告">学情报告</a><a href="#模拟试卷">模拟试卷</a><a href="#待确认">待家长确认</a><a href="#最近更新">历次作业与试卷</a></nav></aside>
@@ -167,10 +176,17 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
                 ) + "</ul>"
             else:
                 body = '<p class="empty">暂无重点短板。</p>'
+            if subject == "数学" and self.math_graph is not None:
+                body = (
+                    '<div class="graph-view-cards">'
+                    f'<a class="graph-view-card" href="{self._href(self.math_graph.panorama_path())}"><strong>数学知识全景脑图</strong><span>给孩子看知识之间怎样连接</span></a>'
+                    f'<a class="graph-view-card" href="{self._href(self.math_graph.explorer_path())}"><strong>数学掌握知识图谱</strong><span>按短板、年级和课程筛选</span></a>'
+                    '</div>' + body
+                )
             subject_curricula = [item for item in self.curricula if item.catalog["subject"] == subject]
             if subject_curricula:
                 entries = "".join(
-                    f'<p>{self._link(subject + "课程知识图（" + item.catalog["title"] + "）", item.entry_path())}'
+                    f'<p>{self._link("教材目录证据页（" + item.catalog["title"] + "）", item.entry_path())}'
                     f' · {"学校课程" if item.catalog["track"] == "school" else "兴趣班"}</p>'
                     for item in subject_curricula
                 )
