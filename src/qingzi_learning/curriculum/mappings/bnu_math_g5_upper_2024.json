@@ -1,6 +1,13 @@
 {
   "schema_version": 1,
   "catalog_id": "bnu-math-g5-upper-2024-review",
+  "source_context": {
+    "provider": "北京师范大学出版社",
+    "publisher": "北京师范大学出版社",
+    "edition": "2024年依据2022版课标修订",
+    "grades": ["5"],
+    "terms": ["upper"]
+  },
   "mappings": [
     {"source_id":"bnu-g5u-u01","source_label":"小数的再认识和加减法","source_type":"textbook","target_ids":["number-decimals","number-decimal-add-subtract"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确包含小数再认识和加减法"},
     {"source_id":"bnu-g5u-u02","source_label":"三角形的再认识","source_type":"textbook","target_ids":["geometry-triangles"],"relation":"curriculum_covers","status":"confirmed","basis":"家长提供的教材目录标题明确对应三角形"},

@@ -54,49 +54,67 @@ class MasteryProjection:
 
 
 def load_course_mappings(path: Path | None = None) -> tuple[SourceMapping, ...]:
-    """Load explicit, evidence-labelled mappings for the photographed BNU book."""
+    """Load every explicit provider-neutral mapping catalog in one directory."""
     if path is None:
-        resource = files("qingzi_learning.curriculum").joinpath(
-            "mappings/bnu_math_g5_upper_2024.json"
-        )
-        payload = json.loads(resource.read_text(encoding="utf-8"))
+        directory = files("qingzi_learning.curriculum").joinpath("mappings")
+        payloads = [
+            json.loads(resource.read_text(encoding="utf-8"))
+            for resource in sorted(directory.iterdir(), key=lambda item: item.name)
+            if resource.name.endswith(".json")
+        ]
     else:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-        raise ValueError("课程知识映射格式无效")
-    raw_mappings = payload.get("mappings")
-    if not isinstance(raw_mappings, list) or not raw_mappings:
+        source = Path(path)
+        sources = sorted(source.glob("*.json")) if source.is_dir() else [source]
+        payloads = [json.loads(item.read_text(encoding="utf-8")) for item in sources]
+    if not payloads:
         raise ValueError("课程知识映射为空")
     graph = load_math_graph()
     results: list[SourceMapping] = []
     seen: set[str] = set()
-    for raw in raw_mappings:
-        if not isinstance(raw, dict):
-            raise ValueError("课程知识映射无效")
-        source_id = _required_text(raw.get("source_id"), "来源编号")
-        if not re.fullmatch(r"[a-z][a-z0-9-]{1,119}", source_id) or source_id in seen:
-            raise ValueError("课程来源编号无效或重复")
-        seen.add(source_id)
-        source_label = _required_text(raw.get("source_label"), "来源名称")
-        source_type, relation, status = raw.get("source_type"), raw.get("relation"), raw.get("status")
-        targets = raw.get("target_ids")
-        if (source_type not in _SOURCE_TYPES or relation not in _RELATIONS
-                or status not in _STATUSES or not isinstance(targets, list)
-                or any(target not in graph.nodes for target in targets)
-                or len(targets) != len(set(targets))
-                or (status == "confirmed" and not targets)):
-            raise ValueError("课程知识映射属性无效")
-        results.append(
-            SourceMapping(
-                source_id=source_id,
-                source_label=source_label,
-                source_type=source_type,
-                target_ids=tuple(targets),
-                relation=relation,
-                status=status,
-                basis=_required_text(raw.get("basis"), "映射依据"),
+    for payload in payloads:
+        if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+            raise ValueError("课程知识映射格式无效")
+        context = payload.get("source_context")
+        raw_mappings = payload.get("mappings")
+        if not isinstance(context, dict) or not isinstance(raw_mappings, list) or not raw_mappings:
+            raise ValueError("课程知识映射为空")
+        provider = _required_text(context.get("provider"), "来源机构")
+        publisher = _optional_text(context.get("publisher", ""), "出版社")
+        edition = _required_text(context.get("edition"), "版本")
+        grades = _metadata_values(context.get("grades"), {str(value) for value in range(1, 10)}, "年级")
+        terms = _metadata_values(context.get("terms"), {"upper", "lower"}, "学期")
+        for raw in raw_mappings:
+            if not isinstance(raw, dict):
+                raise ValueError("课程知识映射无效")
+            source_id = _required_text(raw.get("source_id"), "来源编号")
+            if not re.fullmatch(r"[a-z][a-z0-9-]{1,119}", source_id) or source_id in seen:
+                raise ValueError("课程来源编号无效或重复")
+            seen.add(source_id)
+            source_label = _required_text(raw.get("source_label"), "来源名称")
+            source_type, relation, status = raw.get("source_type"), raw.get("relation"), raw.get("status")
+            targets = raw.get("target_ids")
+            if (source_type not in _SOURCE_TYPES or relation not in _RELATIONS
+                    or status not in _STATUSES or not isinstance(targets, list)
+                    or any(target not in graph.nodes for target in targets)
+                    or len(targets) != len(set(targets))
+                    or (status == "confirmed" and not targets)):
+                raise ValueError("课程知识映射属性无效")
+            results.append(
+                SourceMapping(
+                    source_id=source_id,
+                    source_label=source_label,
+                    source_type=source_type,
+                    target_ids=tuple(targets),
+                    relation=relation,
+                    status=status,
+                    basis=_required_text(raw.get("basis"), "映射依据"),
+                    provider=provider,
+                    publisher=publisher,
+                    edition=edition,
+                    grades=grades,
+                    terms=terms,
+                )
             )
-        )
     return tuple(results)
 
 
@@ -167,7 +185,7 @@ def build_mastery_projection(
             1.0, (bucket["correct"] + 0.5 * bucket["partial"]) / exposure
         )
         state = _mastery_state(exposure, rate)
-        trend = bucket["trends"][-1] if bucket["recent"] >= 5 and bucket["trends"] else "unknown"
+        trend = bucket["trends"][-1] if bucket["trends"] else "unknown"
         projected[concept_id] = ConceptMastery(
             concept_id=concept_id,
             state=state,
@@ -202,6 +220,20 @@ def _required_text(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip() or any(ord(char) < 32 for char in value):
         raise ValueError(f"{label}无效")
     return value.strip()
+
+
+def _optional_text(value: Any, label: str) -> str:
+    if not isinstance(value, str) or any(ord(char) < 32 for char in value):
+        raise ValueError(f"{label}无效")
+    return value.strip()
+
+
+def _metadata_values(value: Any, allowed: set[str], label: str) -> tuple[str, ...]:
+    if (not isinstance(value, list) or not value
+            or any(not isinstance(item, str) or item not in allowed for item in value)
+            or len(value) != len(set(value))):
+        raise ValueError(f"{label}无效")
+    return tuple(value)
 
 
 def _nonnegative_int(value: Any, label: str) -> int:

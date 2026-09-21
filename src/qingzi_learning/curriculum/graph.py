@@ -24,6 +24,7 @@ _COMPETENCIES = {
     "数感", "量感", "符号意识", "运算能力", "几何直观", "空间观念",
     "推理意识", "数据意识", "模型意识", "应用意识", "创新意识",
 }
+_DOMAINS = {"domain-number", "domain-geometry", "domain-statistics", "domain-practice", "extension"}
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,11 @@ class SourceMapping:
     relation: str
     status: str
     basis: str
+    provider: str = ""
+    publisher: str = ""
+    edition: str = ""
+    grades: tuple[str, ...] = ()
+    terms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -104,6 +110,8 @@ def validate_math_graph(payload: dict[str, Any]) -> MathGraph:
         if kind not in _NODE_KINDS:
             raise ValueError("节点类型无效")
         domain = _required_id(raw.get("domain"), "节点领域")
+        if domain not in _DOMAINS:
+            raise ValueError("节点领域无效")
         parent_id = raw.get("parent_id")
         if parent_id is not None:
             parent_id = _required_id(parent_id, "父节点编号")
@@ -132,6 +140,8 @@ def validate_math_graph(payload: dict[str, Any]) -> MathGraph:
             raise ValueError("图谱父节点不存在")
         if node.official and node.parent_id is not None and not nodes[node.parent_id].official:
             raise ValueError("课标节点不能置于非课标拓展节点下")
+        if node.parent_id is not None and nodes[node.parent_id].domain != node.domain:
+            raise ValueError("父子节点领域不一致")
     _reject_parent_cycles(nodes)
 
     roots = payload.get("root_ids")

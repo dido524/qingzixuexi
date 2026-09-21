@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import html
+import os
 from pathlib import Path
+from urllib.parse import quote
 
 from qingzi_learning.curriculum.explorer import render_explorer_page
 from qingzi_learning.curriculum.graph import load_math_graph
@@ -11,6 +13,7 @@ from qingzi_learning.curriculum.mastery import build_mastery_projection, load_co
 from qingzi_learning.curriculum.panorama import render_panorama_page
 from qingzi_learning.curriculum.view_model import build_graph_view_model
 from qingzi_learning.export.publication import write_output
+from qingzi_learning.export.markdown import MarkdownExporter
 from qingzi_learning.storage.paths import KnowledgePaths
 from qingzi_learning.storage.repository import KnowledgeRepository
 
@@ -70,12 +73,43 @@ class MathKnowledgeGraphExporter:
             self.repo.export_subject_snapshot("数学"),
         )
         model = build_graph_view_model(self.graph, projection, self.mappings)
+        self._attach_evidence(model, projection)
         self._create_parent_notes()
         write_output(self.panorama_path(), render_panorama_page(model), self.paths.knowledge_root)
         write_output(self.explorer_path(), render_explorer_page(model), self.paths.knowledge_root)
         self._write_index(model)
         self._write_nodes(model)
         return self.panorama_path(), self.explorer_path()
+
+    def _attach_evidence(self, model: dict, projection) -> None:
+        markdown = MarkdownExporter(self.repo, self.paths)
+        seen_by_concept: dict[str, set[tuple[str, str, int]]] = {}
+        for item in projection.audit:
+            if item.status != "confirmed" or not item.concept_ids:
+                continue
+            concept_id = item.concept_ids[0]
+            evidence = model["nodes"][concept_id]["mastery"].setdefault("evidence", [])
+            seen = seen_by_concept.setdefault(concept_id, set())
+            for row in self.repo.knowledge_point_evidence("数学", item.label):
+                document_id = str(row.get("document_id", ""))
+                question_id = str(row.get("question_id", ""))
+                page = row.get("page")
+                if not document_id or not question_id or type(page) is not int:
+                    continue
+                key = (document_id, question_id, page)
+                if key in seen or len(evidence) >= 50:
+                    continue
+                seen.add(key)
+                destination = markdown.document_path("数学", document_id)
+                relative = os.path.relpath(destination, self.output_dir).replace("\\", "/")
+                href = "/".join(
+                    segment if segment in {".", ".."} else quote(segment, safe="-._~")
+                    for segment in relative.split("/")
+                )
+                evidence.append({
+                    "label": f"资料 {document_id} · 第 {page} 页 · 第 {question_id} 题",
+                    "href": href,
+                })
 
     def _create_parent_notes(self) -> None:
         self._create_once(

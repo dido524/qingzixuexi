@@ -60,3 +60,23 @@ def test_explorer_renders_hierarchy_cross_links_and_print_appendix():
     assert "当前筛选的薄弱知识点" in page
     assert "@media print" in page
     assert "min-height:560px" in page
+
+
+def test_filters_hide_svg_nodes_apply_term_and_update_print_appendix():
+    page = render_explorer_page(_model(["小数乘法"]))
+    assert ".is-hidden{display:none!important}" in page
+    assert 'const term=document.getElementById("filter-term").value' in page
+    assert "item.terms.includes(term)" in page
+    assert 'row.classList.toggle("is-hidden"' in page
+    assert ".hidden=" not in page
+
+
+def test_explorer_shows_repository_trend_and_evidence_links():
+    model = _model(["小数乘法"])
+    model["nodes"]["number-decimal-multiply"]["mastery"]["evidence"] = [
+        {"label": "资料 doc-1 · 第 1 页 · 第 q1 题", "href": "../../分析记录/doc-1.md"}
+    ]
+    page = render_explorer_page(model)
+    assert "下降" in page
+    assert "evidence.map" in page
+    assert "href" in page

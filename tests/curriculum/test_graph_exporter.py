@@ -79,3 +79,40 @@ def test_obsidian_notes_link_relations_sources_and_preserve_parent_edits(repo):
     assert "北师大" in text
     assert "样本" in text
     assert "我的-number-decimal-multiply.md" in text
+
+
+def test_explorer_payload_links_confirmed_evidence_without_question_text(repo, monkeypatch):
+    snapshot = {
+        "knowledge_points": [{
+            "knowledge_point": "小数乘法",
+            "exposure_count": 6,
+            "correct_count": 3,
+            "partial_count": 1,
+            "incorrect_count": 2,
+            "last_seen_at": "2026-09-20 12:00:00",
+            "trend": "declining",
+        }],
+    }
+    monkeypatch.setattr(repo, "export_subject_snapshot", lambda subject: snapshot)
+    monkeypatch.setattr(
+        repo,
+        "knowledge_point_evidence",
+        lambda subject, label: [{
+            "document_id": "doc-1",
+            "question_id": "q1",
+            "page": 1,
+            "prompt_summary": "不得写入图谱载荷的题目正文",
+        }],
+    )
+
+    exporter = MathKnowledgeGraphExporter(repo)
+    _, explorer = exporter.export()
+    payload = _payload(explorer.read_text("utf-8"))
+    mastery = payload["nodes"]["number-decimal-multiply"]["mastery"]
+
+    assert mastery["trend"] == "declining"
+    assert mastery["evidence"] == [{
+        "label": "资料 doc-1 · 第 1 页 · 第 q1 题",
+        "href": "../../%E5%88%86%E6%9E%90%E8%AE%B0%E5%BD%95/doc-1.md",
+    }]
+    assert "不得写入" not in explorer.read_text("utf-8")

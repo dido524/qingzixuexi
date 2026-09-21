@@ -17,6 +17,7 @@ def build_graph_view_model(
     sources = tuple(mappings)
     sources_by_target: dict[str, list[dict[str, Any]]] = {node_id: [] for node_id in graph.nodes}
     source_rows: list[dict[str, Any]] = []
+    source_audit: list[dict[str, Any]] = []
     for mapping in sources:
         row = {
             "source_id": mapping.source_id,
@@ -26,10 +27,18 @@ def build_graph_view_model(
             "relation": mapping.relation,
             "status": mapping.status,
             "basis": mapping.basis,
+            "provider": mapping.provider,
+            "publisher": mapping.publisher,
+            "edition": mapping.edition,
+            "grades": list(mapping.grades),
+            "terms": list(mapping.terms),
         }
-        source_rows.append(row)
-        for target_id in mapping.target_ids:
-            sources_by_target.setdefault(target_id, []).append(row)
+        if mapping.status == "confirmed":
+            source_rows.append(row)
+            for target_id in mapping.target_ids:
+                sources_by_target.setdefault(target_id, []).append(row)
+        else:
+            source_audit.append(row)
 
     nodes: dict[str, dict[str, Any]] = {}
     for node_id, node in graph.nodes.items():
@@ -58,6 +67,7 @@ def build_graph_view_model(
         "nodes": nodes,
         "edges": [asdict(edge) for edge in graph.edges],
         "sources": source_rows,
+        "sourceAudit": source_audit,
         "audit": [
             {
                 "label": item.label,

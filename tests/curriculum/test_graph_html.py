@@ -34,6 +34,11 @@ def test_shared_view_model_carries_nodes_edges_sources_and_audit():
     decimal = model["nodes"]["number-decimal-multiply"]
     assert decimal["mastery"]["evidence_count"] == 6
     assert decimal["sources"][0]["source_label"] == "小数乘法"
+    assert decimal["sources"][0]["grades"] == ["5"]
+    assert decimal["sources"][0]["terms"] == ["upper"]
+    application = model["nodes"]["relation-application-model"]
+    assert all(source["status"] == "confirmed" for source in application["sources"])
+    assert any(item["source_label"] == "鸡兔同笼" for item in model["sourceAudit"])
     assert model["filters"]["grades"] == ["1", "2", "3", "4", "5", "6"]
 
 

@@ -95,6 +95,8 @@ def test_verifier_rejects_external_assets_and_broken_links(tmp_path: Path) -> No
     encoded = json.dumps(payload, ensure_ascii=False)
     page_text = (
         '<script src="https://cdn.example.test/graph.js"></script>'
+        '<img src="file:///C:/outside.png">'
+        '<style>@import url("https://cdn.example.test/graph.css");</style>'
         '<a href="missing-note.md">说明</a>'
         f'<script type="application/json" id="graph-data">{encoded}</script>'
     )
@@ -107,7 +109,7 @@ def test_verifier_rejects_external_assets_and_broken_links(tmp_path: Path) -> No
     result = verify_graph_pages(tmp_path, pages)
 
     assert not result.ok
-    assert {"external_asset", "broken_link"} <= set(result.error_codes)
+    assert {"external_asset", "unsafe_scheme", "broken_link"} <= set(result.error_codes)
     assert result.cross_subject_count == 1
     assert result.important_cross_link_count == 1
 

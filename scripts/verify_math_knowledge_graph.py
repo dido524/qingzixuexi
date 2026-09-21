@@ -71,8 +71,9 @@ def _inspect_links(
     external: list[str],
     errors: list[str],
 ) -> None:
+    text = page.read_text(encoding="utf-8")
     parser = _LinkCollector()
-    parser.feed(page.read_text(encoding="utf-8"))
+    parser.feed(text)
     root_resolved = root.resolve()
     for attribute, raw in parser.references:
         parsed = urlsplit(raw)
@@ -81,6 +82,8 @@ def _inspect_links(
             external.append(f"{page.name}:{attribute}={raw}")
             continue
         if scheme or raw.startswith("//"):
+            errors.append("unsafe_scheme")
+            external.append(f"{page.name}:{attribute}={raw}")
             continue
         path_text = unquote(parsed.path)
         if not path_text:
@@ -95,6 +98,14 @@ def _inspect_links(
             broken.append(f"{page.name}:{raw}")
     if external:
         errors.append("external_asset")
+    if re.search(
+        r"(?:@import\s+(?:url\()?\s*[\"']?https?://|"
+        r"url\(\s*[\"']?https?://|(?:fetch|WebSocket)\s*\(\s*[\"']https?://)",
+        text,
+        re.IGNORECASE,
+    ):
+        errors.append("external_asset")
+        external.append(f"{page.name}:embedded_remote_reference")
     if broken:
         errors.append("broken_link")
 

@@ -75,3 +75,17 @@ def test_graph_rejects_parent_cycles_and_official_nodes_below_extension():
     by_id["theme-number-operations"]["parent_id"] = "extension-number-theory"
     with pytest.raises(ValueError, match="非课标"):
         validate_math_graph(data)
+
+
+def test_graph_rejects_unknown_or_cross_domain_parentage():
+    data = json.loads(GRAPH_PATH.read_text("utf-8"))
+    by_id = {node["node_id"]: node for node in data["nodes"]}
+    by_id["number-decimals"]["domain"] = "domain-typo"
+    with pytest.raises(ValueError, match="领域"):
+        validate_math_graph(data)
+
+    data = json.loads(GRAPH_PATH.read_text("utf-8"))
+    by_id = {node["node_id"]: node for node in data["nodes"]}
+    by_id["number-decimals"]["parent_id"] = "theme-shapes-measure"
+    with pytest.raises(ValueError, match="领域"):
+        validate_math_graph(data)

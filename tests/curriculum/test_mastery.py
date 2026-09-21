@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import json
+from pathlib import Path
 
 import pytest
 
@@ -125,9 +127,51 @@ def test_current_book_mappings_are_explicit_and_validated():
     assert len(mappings) == 12
     assert {mapping.status for mapping in mappings} == {"confirmed", "pending"}
     assert all(mapping.source_type == "textbook" for mapping in mappings)
+    assert all(mapping.provider == "北京师范大学出版社" for mapping in mappings)
+    assert all(mapping.grades == ("5",) and mapping.terms == ("upper",) for mapping in mappings)
     assert any(
         mapping.source_id.endswith("u03")
         and mapping.target_ids == ("number-decimal-multiply",)
         and mapping.status == "confirmed"
         for mapping in mappings
     )
+
+
+def test_repository_owned_trend_is_preserved_without_invented_recent_count():
+    projection = build_mastery_projection(
+        load_math_graph(),
+        math_snapshot([point("小数乘法", exposure_count=7, trend="declining")]),
+        now=NOW,
+    )
+    mastery = projection.by_concept["number-decimal-multiply"]
+    assert mastery.recent_count == 0
+    assert mastery.trend == "declining"
+
+
+def test_mapping_directory_loads_multiple_provider_neutral_catalogs(tmp_path):
+    source = (
+        Path(__file__).parents[2]
+        / "src" / "qingzi_learning" / "curriculum" / "mappings"
+        / "bnu_math_g5_upper_2024.json"
+    )
+    first = json.loads(source.read_text("utf-8"))
+    second = json.loads(source.read_text("utf-8"))
+    second["catalog_id"] = "calculation-training-g5-upper"
+    second["source_context"] = {
+        "provider": "计算训练示例",
+        "publisher": "",
+        "edition": "2026",
+        "grades": ["5"],
+        "terms": ["upper"],
+    }
+    for mapping in second["mappings"]:
+        mapping["source_id"] = "training-" + mapping["source_id"]
+        mapping["source_type"] = "calculation_training"
+        mapping["relation"] = "trains"
+    (tmp_path / "book.json").write_text(json.dumps(first, ensure_ascii=False), "utf-8")
+    (tmp_path / "training.json").write_text(json.dumps(second, ensure_ascii=False), "utf-8")
+
+    mappings = load_course_mappings(tmp_path)
+
+    assert len(mappings) == 24
+    assert {mapping.provider for mapping in mappings} == {"北京师范大学出版社", "计算训练示例"}

@@ -27,6 +27,9 @@ def test_panorama_has_child_view_controls_and_print_contract():
         assert detail_heading in page
     assert "@media print" in page and "prefers-reduced-motion" in page
     assert "localStorage" not in page and "sessionStorage" not in page
+    assert ".is-hidden{display:none!important}" in page
+    assert 'classList.toggle("is-hidden"' in page
+    assert ".hidden=" not in page
 
 
 def test_panorama_renders_four_domain_zones_and_accessible_nodes():
