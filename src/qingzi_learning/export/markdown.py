@@ -61,19 +61,25 @@ class MarkdownExporter:
     def expected_paths(self, subject: str) -> set[Path]:
         """Derive the complete current subject set from facts, never a manifest."""
         snapshot = self.repo.export_subject_snapshot(subject)
-        return ({self.document_path(subject, item["document_id"]) for item in snapshot["documents"]}
+        return ({self.document_path(subject, item["document_id"], display_name=item["display_name"]) for item in snapshot["documents"]}
                 | {self.knowledge_point_path(subject, item["knowledge_point"]) for item in snapshot["knowledge_points"]}
                 | {self.error_index_path(subject), self.paths.safe_file_path(subject, "知识点", "科目总览.md")})
 
-    def document_path(self, subject: str, document_id: str) -> Path:
-        """Return an analysis-note path only for a safe, flat document identifier."""
-        return self.paths.safe_file_path(subject, "分析记录", f"{document_id}.md")
+    def document_path(
+        self, subject: str, document_id: str, *, display_name: str | None = None
+    ) -> Path:
+        """Return a human-readable analysis path while still validating the internal id."""
+        self.paths.safe_file_path(subject, "分析记录", f"{document_id}.md")
+        visible_name = display_name or self.repo.document_display_name(document_id)
+        return self.paths.safe_file_path(subject, "分析记录", f"{visible_name}.md")
 
     def error_index_path(self, subject: str) -> Path:
         return self.paths.safe_file_path(subject, "错题", "错题索引.md")
 
     def _export_document_record(self, document: dict[str, Any], tree: SubjectTree) -> Path:
-        destination = self.document_path(document["subject"], document["document_id"])
+        destination = self.document_path(
+            document["subject"], document["document_id"], display_name=document["display_name"]
+        )
         page_paths = {page["page_number"]: Path(page["path"]) for page in document["pages"]}
         lines = [
             "---",
@@ -83,7 +89,7 @@ class MarkdownExporter:
             f"grading_mode: {self._yaml_value(document.get('grading_mode') or '')}",
             "---",
             "",
-            f"# {self._plain(document['subject'])} {self._plain(document['document_id'])} 分析记录",
+            f"# {self._plain(document['display_name'])} 分析记录",
             "",
             "## 总结",
             "",
@@ -195,7 +201,9 @@ class MarkdownExporter:
         if not snapshot["documents"]:
             lines.append("尚无资料。")
         for document in snapshot["documents"]:
-            lines.append(f"- {self._markdown_link(document['document_id'], self.document_path(subject, document['document_id']), destination)} · {self._plain(document['document_type'])}")
+            lines.append(
+                f"- {self._markdown_link(document['display_name'], self.document_path(subject, document['document_id'], display_name=document['display_name']), destination)} · {self._plain(document['document_type'])}"
+            )
         self._atomic_write(destination, "\n".join(lines).rstrip() + "\n")
         return destination
 
@@ -224,7 +232,7 @@ class MarkdownExporter:
             )
             lines.append(
                 f"- 第 {item['page']} 页第 {self._plain(item['question_id'])} 题：{self._plain(item['prompt_summary'])}（{self._plain(item['status'])}） · "
-                f"{self._markdown_link(item['document_id'], self.document_path(subject, item['document_id']), destination)} · 原图 {source}"
+                f"{self._markdown_link(item['display_name'], self.document_path(subject, item['document_id'], display_name=item['display_name']), destination)} · 原图 {source}"
             )
         self._atomic_write(destination, "\n".join(lines).rstrip() + "\n")
         return destination
@@ -258,7 +266,7 @@ class MarkdownExporter:
             )
             lines.append(
                 f"- 第 {item['page']} 页第 {self._plain(item['question_id'])} 题：{self._plain(item['prompt_summary'])}（{self._plain(item['status'])}，{self._plain(item['decision_source'])}） · "
-                f"{self._markdown_link(item['document_id'], self.document_path(subject, item['document_id']), destination)} · 原图 {source}"
+                f"{self._markdown_link(item['display_name'], self.document_path(subject, item['document_id'], display_name=item['display_name']), destination)} · 原图 {source}"
             )
         self._atomic_write(destination, "\n".join(lines).rstrip() + "\n")
         return destination

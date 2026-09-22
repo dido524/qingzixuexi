@@ -100,14 +100,17 @@ class MathKnowledgeGraphExporter:
                 if key in seen or len(evidence) >= 50:
                     continue
                 seen.add(key)
-                destination = markdown.document_path("数学", document_id)
+                display_name = str(row.get("display_name") or document_id)
+                destination = markdown.document_path(
+                    "数学", document_id, display_name=display_name
+                )
                 relative = os.path.relpath(destination, self.output_dir).replace("\\", "/")
                 href = "/".join(
                     segment if segment in {".", ".."} else quote(segment, safe="-._~")
                     for segment in relative.split("/")
                 )
                 evidence.append({
-                    "label": f"资料 {document_id} · 第 {page} 页 · 第 {question_id} 题",
+                    "label": f"资料 {display_name} · 第 {page} 页 · 第 {question_id} 题",
                     "href": href,
                 })
 

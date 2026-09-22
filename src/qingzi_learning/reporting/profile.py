@@ -40,10 +40,17 @@ class LearningProfileBuilder:
         }
         rows = evidence["effective_rows"]
         questions: dict[tuple[str, str], dict[str, Any]] = {}
+        display_names: dict[str, str] = {}
         for row in rows:
             key = (row["document_id"], row["question_id"])
+            if row["document_id"] not in display_names:
+                display_names[row["document_id"]] = self.repo.document_display_name(
+                    row["document_id"]
+                )
+            display_name = display_names[row["document_id"]]
             question = questions.setdefault(key, {
                 "document_id": row["document_id"],
+                "display_name": display_name,
                 "question_id": row["question_id"],
                 "subject": row["subject"],
                 "status": row["status"],
@@ -122,6 +129,7 @@ class LearningProfileBuilder:
                     "representative_questions": [
                         {
                             "document_id": item["document_id"],
+                            "display_name": item["display_name"],
                             "question_id": item["question_id"],
                             "prompt_summary": item["prompt_summary"],
                             "status": item["status"],
@@ -163,8 +171,8 @@ class LearningProfileBuilder:
         }
         return profile
 
-    @staticmethod
     def _retests(
+        self,
         rows: list[dict[str, Any]],
         previous_snapshot: dict[str, Any] | None,
         subjects: dict[str, dict[str, Any]],
@@ -190,6 +198,7 @@ class LearningProfileBuilder:
                     item["knowledge_points"].append(point)
             item["attempts"].append({
                 "document_id": row["document_id"],
+                "display_name": self.repo.document_display_name(row["document_id"]),
                 "document_question_id": row["document_question_id"],
                 "status": row["current_status"],
                 "linked_at": row["linked_at"],

@@ -60,6 +60,9 @@ def test_explorer_renders_hierarchy_cross_links_and_print_appendix():
     assert "当前筛选的薄弱知识点" in page
     assert "@media print" in page
     assert "min-height:560px" in page
+    assert 'id="graph-overview"' in page
+    assert page.count('data-overview-node-id="') == 62
+    assert re.search(r'<svg id="mastery-graph"[^>]+width="1500"[^>]+height="\d+"', page)
 
 
 def test_filters_hide_svg_nodes_apply_term_and_update_print_appendix():

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -91,7 +90,6 @@ class DashboardExporter:
             + self._card("待确认", summary["review_count"], period["label"], period["sample_size"], has_data)
         )
         subjects = "".join(self._subject_row(subject, data) for subject, data in snapshot["subjects"].items())
-        embedded = self._safe_json(snapshot)
         report_entry = (
             f'<p><a href="{html.escape(self._href(latest_report), quote=True)}">查看最新学情报告</a></p>'
             if latest_report is not None else '<p class="future">尚未生成学情报告，请从桌面程序的“学习与复习”进入。</p>'
@@ -119,7 +117,7 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
 <section id="模拟试卷" class="panel"><h2>针对性模拟试卷</h2>{exam_entry}<p class="future">新试卷请从桌面程序的“学习与复习”生成并由家长确认；这里只展示已批准版本。</p></section>
 <section id="待确认" class="panel"><h2>待确认入口</h2>{self._pending(snapshot['pending_questions'], snapshot['pending_questions_truncated'])}<p class="future">待确认题目请在“晴子学习助手”桌面程序中复核；本网页仅供只读查看。</p></section>
 <footer class="meta">此页面离线可用；原始资料、SQLite/JSON 为事实层，页面可随时重新生成。</footer></main>
-<script>const dashboardSnapshot = {embedded};</script></body></html>"""
+</body></html>"""
 
     def _subject_nav(self) -> str:
         return "".join(
@@ -187,15 +185,6 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
                     f'<a class="graph-view-card" href="{self._href(self.math_graph.explorer_path())}"><strong>数学掌握知识图谱</strong><span>按短板、年级和课程筛选</span></a>'
                     '</div>' + body
                 )
-            subject_curricula = [item for item in self.curricula if item.catalog["subject"] == subject]
-            if subject_curricula:
-                entries = "".join(
-                    f'<p>{self._link("教材目录证据页（" + item.catalog["title"] + "）", item.entry_path())}'
-                    f' · {"学校课程" if item.catalog["track"] == "school" else "兴趣班"}</p>'
-                    for item in subject_curricula
-                )
-                body = (entries + '<p class="meta">教材目录确认的课程结构；橙色连线是教学整理建议。'
-                        '尚未把历史题目自动归类到教材单元。</p>' + body)
             sections.append(
                 f'<section class="weak-subject" data-subject="{html.escape(subject, quote=True)}">'
                 f"<h3>{html.escape(subject)}</h3>{body}</section>"
@@ -207,7 +196,7 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
             return "<p>尚无数据。</p>"
         body = "<ul>" + "".join(
             f"<li><strong>{html.escape(item['subject'])}</strong> · {html.escape(item['document_type'])}<br>"
-            f"{self._link(item['document_id'], self.markdown.document_path(item['subject'], item['document_id']))} · {html.escape(item['updated_at'] or '')}</li>"
+            f"{self._link(item['display_name'], self.markdown.document_path(item['subject'], item['document_id'], display_name=item['display_name']))} · {html.escape(item['updated_at'] or '')}</li>"
             for item in documents if self._safe_linkable_document(item["subject"], item["document_id"])
         ) + "</ul>"
         if truncated:
@@ -218,7 +207,7 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
         if not items:
             return "<p>尚无数据。</p>"
         body = "<ul>" + "".join(
-            f"<li>{html.escape(item['subject'])} · {self._link(item['document_id'], self.markdown.document_path(item['subject'], item['document_id']))} · 第 {item['page']} 页第 {html.escape(item['question_id'])} 题：{html.escape(item['prompt_summary'])}（{html.escape(item['status'])}） · {html.escape('家长复核' if item['decision_source'] == 'parent' else item['decision_source'])} · 原图 {self._source_link(item.get('source_path'), item['page'])}</li>"
+            f"<li>{html.escape(item['subject'])} · {self._link(item['display_name'], self.markdown.document_path(item['subject'], item['document_id'], display_name=item['display_name']))} · 第 {item['page']} 页第 {html.escape(item['question_id'])} 题：{html.escape(item['prompt_summary'])}（{html.escape(item['status'])}） · {html.escape('家长复核' if item['decision_source'] == 'parent' else item['decision_source'])} · 原图 {self._source_link(item.get('source_path'), item['page'])}</li>"
             for item in items if self._safe_linkable_document(item["subject"], item["document_id"])
         ) + "</ul>"
         if truncated:
@@ -229,7 +218,7 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
         if not items:
             return "<p>尚无数据。</p>"
         body = "<ul>" + "".join(
-            f"<li>{html.escape(item['subject'])} · {self._link(item['document_id'], self.markdown.document_path(item['subject'], item['document_id']))} · 第 {item['page']} 页第 {html.escape(item['question_id'])} 题（置信度 {item['confidence']:.2f}）</li>"
+            f"<li>{html.escape(item['subject'])} · {self._link(item['display_name'], self.markdown.document_path(item['subject'], item['document_id'], display_name=item['display_name']))} · 第 {item['page']} 页第 {html.escape(item['question_id'])} 题（置信度 {item['confidence']:.2f}）</li>"
             for item in items if self._safe_linkable_document(item["subject"], item["document_id"])
         ) + "</ul>"
         if truncated:
@@ -277,10 +266,6 @@ table {{ width:100%;border-collapse:collapse;background:var(--card);border:1px s
         if trend["status"] == "insufficient_data":
             return f"样本不足，暂不判断趋势（{trend['period_label']}；资料 {trend['document_sample_size']}，题目样本 {trend['question_sample_size']}）"
         return f"{trend_label(trend['status'])}（{trend['period_label']}；资料 {trend['document_sample_size']}，题目样本 {trend['question_sample_size']}）"
-
-    @staticmethod
-    def _safe_json(snapshot: dict[str, Any]) -> str:
-        return json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
     def _atomic_write(self, destination: Path, content: str) -> None:
         write_output(destination, content, self.paths.knowledge_root)

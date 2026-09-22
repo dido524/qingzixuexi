@@ -1496,6 +1496,36 @@ class KnowledgeRepository:
         ).fetchone()
         return int(row["count"])
 
+    def document_display_name(self, document_id: str) -> str:
+        """Return the stable, human-facing name for a captured document.
+
+        Database identifiers remain unchanged so evidence links and retries keep
+        working.  The displayed sequence is per Shanghai calendar day and
+        subject, ordered by capture time and then SQLite row id.
+        """
+        row = self.connection.execute(
+            """
+            SELECT current.subject,
+                   date(current.created_at, '+8 hours') AS local_date,
+                   (
+                       SELECT COUNT(*)
+                       FROM documents AS earlier
+                       WHERE earlier.subject = current.subject
+                         AND date(earlier.created_at, '+8 hours') = date(current.created_at, '+8 hours')
+                         AND (
+                             earlier.created_at < current.created_at
+                             OR (earlier.created_at = current.created_at AND earlier.rowid <= current.rowid)
+                         )
+                   ) AS daily_sequence
+            FROM documents AS current
+            WHERE current.document_id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("资料不存在")
+        return f"{row['local_date']}-{row['subject']}-第{int(row['daily_sequence']):02d}份"
+
     def get_document(self, document_id: str) -> dict[str, Any] | None:
         """Return one document with its page and question evidence, or ``None``."""
         row = self.connection.execute(
@@ -1504,6 +1534,7 @@ class KnowledgeRepository:
         if row is None:
             return None
         document = dict(row)
+        document["display_name"] = self.document_display_name(document_id)
         document["teacher_mark_evidence"] = self._from_json(
             document.pop("teacher_mark_evidence_json")
         )
@@ -1538,7 +1569,7 @@ class KnowledgeRepository:
 
     def list_pending(self) -> list[dict[str, Any]]:
         placeholders = ", ".join("?" for _ in _PENDING_STATES)
-        return [
+        rows = [
             dict(row)
             for row in self.connection.execute(
                 f"""
@@ -1551,6 +1582,9 @@ class KnowledgeRepository:
                 _PENDING_STATES,
             )
         ]
+        for row in rows:
+            row["display_name"] = self.document_display_name(row["document_id"])
+        return rows
 
     def dashboard_snapshot(self) -> dict[str, Any]:
         """Return bounded dashboard previews plus explicitly labelled aggregate facts."""
@@ -1650,7 +1684,7 @@ class KnowledgeRepository:
     def knowledge_point_evidence(self, subject: str, knowledge_point: str) -> list[dict[str, Any]]:
         """Return complete page/question evidence for one generated knowledge-point note."""
         self._validate_subject(subject)
-        return [
+        rows = [
             dict(row)
             for row in self.connection.execute(
                 """
@@ -1669,13 +1703,16 @@ class KnowledgeRepository:
                 (subject, knowledge_point),
             )
         ]
+        for row in rows:
+            row["display_name"] = self.document_display_name(row["document_id"])
+        return rows
 
     def confirmed_knowledge_point_evidence(
         self, subject: str, knowledge_point: str
     ) -> list[dict[str, Any]]:
         """Return only evidence that is eligible for mastery statistics."""
         self._validate_subject(subject)
-        return [
+        rows = [
             dict(row)
             for row in self.connection.execute(
                 """
@@ -1696,6 +1733,9 @@ class KnowledgeRepository:
                 (subject, knowledge_point),
             )
         ]
+        for row in rows:
+            row["display_name"] = self.document_display_name(row["document_id"])
+        return rows
 
     def _subject_export_knowledge_points(self, subject: str) -> list[dict[str, Any]]:
         """Include linked points even while a recoverable job has not built mastery stats yet."""
@@ -1768,7 +1808,7 @@ class KnowledgeRepository:
             parameters.append(subject)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         limit_sql = f" LIMIT {limit}" if limit is not None else ""
-        return [
+        rows = [
             dict(row)
             for row in self.connection.execute(
                 f"""
@@ -1779,6 +1819,9 @@ class KnowledgeRepository:
                 parameters,
             )
         ]
+        for row in rows:
+            row["display_name"] = self.document_display_name(row["document_id"])
+        return rows
 
     def _question_rows(
         self, *, subject: str | None = None, statuses: tuple[str, ...], limit: int | None = None
@@ -1790,7 +1833,7 @@ class KnowledgeRepository:
             clauses.append("documents.subject = ?")
             parameters.append(subject)
         limit_sql = f" LIMIT {limit}" if limit is not None else ""
-        return [
+        rows = [
             dict(row)
             for row in self.connection.execute(
                 f"""
@@ -1809,6 +1852,9 @@ class KnowledgeRepository:
                 parameters,
             )
         ]
+        for row in rows:
+            row["display_name"] = self.document_display_name(row["document_id"])
+        return rows
 
     def _has_more_documents(self, limit: int) -> bool:
         row = self.connection.execute("SELECT COUNT(*) AS count FROM documents").fetchone()

@@ -35,6 +35,11 @@ def visible_files(root):
             if p.is_file() and p.suffix in {".md", ".html"}}
 
 
+def document_note(repo, document_id="doc", subject="语文"):
+    return (repo.config.knowledge_root / subject / "分析记录"
+            / f"{repo.document_display_name(document_id)}.md")
+
+
 @pytest.mark.parametrize("kind", ["html", "markdown"])
 @pytest.mark.parametrize("old_failure", [False, True])
 @pytest.mark.parametrize("remaining", [0, 1])
@@ -50,7 +55,9 @@ def test_parent_publication_wins_over_old_actual_write_entrance(repo, monkeypatc
 
     def old_write(destination, content):
         assert not repo.connection.in_transaction
-        wanted = destination.name == ("知识库首页.html" if kind == "html" else "doc.md")
+        wanted = destination.name == (
+            "知识库首页.html" if kind == "html" else document_note(repo).name
+        )
         if wanted and not expected:
             parent = service(other)
             decision(parent, parent.list_pending()[0], "correct")
@@ -90,7 +97,7 @@ def test_terminal_retry_repairs_corrupt_visible_files_without_analysis(repo, par
         repo.save_workflow_job(replace(initial, payload=dict(initial.payload, export_pending=True)))
         assert WorkflowController(repo.config, NeverAnalyze(), repo).retry_pending("doc").state == "completed"
     root = repo.config.knowledge_root
-    target = root / "知识库首页.html" if kind == "html" else root / "语文" / "分析记录" / "doc.md"
+    target = root / "知识库首页.html" if kind == "html" else document_note(repo)
     target.write_text("stale visible content", encoding="utf-8")
     controller = WorkflowController(repo.config, NeverAnalyze(), repo)
     if restart:
@@ -136,7 +143,9 @@ def test_partial_visible_replace_failure_is_recoverable_and_unlocks(repo, monkey
     failed = False
     def interrupt(source, destination):
         nonlocal failed
-        wanted = Path(destination).name == ("知识库首页.html" if kind == "html" else "doc.md")
+        wanted = Path(destination).name == (
+            "知识库首页.html" if kind == "html" else document_note(repo).name
+        )
         result = original(source, destination)
         if not failed and wanted and Path(source).suffix == ".part" and Path(source).parent == Path(destination).parent:
             failed = True
@@ -211,7 +220,7 @@ def test_ordinary_holds_visible_lock_first_then_parent_publishes_latest(repo, mo
         worker.join(15)
     assert not worker.is_alive() and not failures
     assert repo.get_job("doc").state == ("needs_review" if remaining else "completed")
-    assert "decision_source: parent" in (repo.config.knowledge_root / "语文" / "分析记录" / "doc.md").read_text(encoding="utf-8")
+    assert "decision_source: parent" in document_note(repo).read_text(encoding="utf-8")
     assert WorkflowController(repo.config, NeverAnalyze(), repo).publication.current()
 
 

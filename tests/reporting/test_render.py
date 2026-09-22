@@ -26,8 +26,8 @@ def test_parent_report_shows_samples_and_traceable_document_link(tmp_path: Path)
 
     assert "家长版学情报告" in text
     assert "样本 2" in text
-    assert "doc-one" in text
-    assert "../../../../%E6%95%B0%E5%AD%A6/%E5%88%86%E6%9E%90%E8%AE%B0%E5%BD%95/doc-one.md" in text
+    assert "2026-09-18-数学-第01份" in text
+    assert "../../../../%E6%95%B0%E5%AD%A6/%E5%88%86%E6%9E%90%E8%AE%B0%E5%BD%95/2026-09-18-%E6%95%B0%E5%AD%A6-%E7%AC%AC01%E4%BB%BD.md" in text
     assert "题号 1" in text
     assert "<strong>1</strong><span>待确认</span>" in text
 
@@ -125,6 +125,7 @@ def _profile() -> dict:
                 "error_categories": [{"name": "审题", "count": 1}],
                 "representative_questions": [{
                     "document_id": "doc-one",
+                    "display_name": "2026-09-18-数学-第01份",
                     "question_id": "1",
                     "prompt_summary": "分数应用题",
                     "status": "incorrect",

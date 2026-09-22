@@ -16,6 +16,10 @@ from qingzi_learning.review.service import ReviewService
 from tests.workflow.test_controller import mixed_setup, controller_for, _confirm_mixed
 
 
+def document_relative(repo, document_id="doc", subject="语文"):
+    return f"{subject}/分析记录/{repo.document_display_name(document_id)}.md"
+
+
 def test_split_batch_has_one_parent_publication_with_complete_outputs(mixed_setup, monkeypatch):
     controller = controller_for(mixed_setup)
     _, repository, _, session = mixed_setup
@@ -30,8 +34,8 @@ def test_split_batch_has_one_parent_publication_with_complete_outputs(mixed_setu
     assert result.state == "completed"
     row = repository.connection.execute("SELECT * FROM reading_publication").fetchone()
     outputs = json.loads(row["files_json"])
-    assert "数学/分析记录/mixed-pages--math.md" in outputs
-    assert "英语/分析记录/mixed-pages--english.md" in outputs
+    assert document_relative(repository, "mixed-pages--math", "数学") in outputs
+    assert document_relative(repository, "mixed-pages--english", "英语") in outputs
     assert not any(path.endswith("/mixed-pages.md") for path in outputs)
     assert set(outputs) == controller.publication._expected_outputs()
     assert row["facts_hash"] == repository.reading_revision()
@@ -276,7 +280,7 @@ def test_manifest_exact_set_is_reconstructed_on_retry(repo, parent_owned, restar
     expected = visible_files(root)
     row = repo.connection.execute("SELECT * FROM reading_publication").fetchone()
     manifest = json.loads(row["files_json"])
-    path = "语文/分析记录/doc.md"
+    path = document_relative(repo)
     if damage == "omitted_corrupt":
         del manifest[path]
         (root / path).write_text("corrupt omitted file", encoding="utf-8")
@@ -294,7 +298,7 @@ def test_manifest_exact_set_is_reconstructed_on_retry(repo, parent_owned, restar
     elif damage == "hash":
         manifest[path] = "0" * 64
     else:
-        manifest["语文/分析记录/../分析记录/doc.md"] = manifest.pop(path)
+        manifest[f"语文/分析记录/../分析记录/{repo.document_display_name('doc')}.md"] = manifest.pop(path)
     with repo.connection:
         repo.connection.execute("UPDATE reading_publication SET files_json=?", (json.dumps(manifest),))
     controller = WorkflowController(repo.config, NeverAnalyze(), repo)
@@ -385,7 +389,7 @@ def test_expected_set_cannot_hide_missing_manifest_entries(repo, damage):
     row = repo.connection.execute("SELECT * FROM reading_output_set").fetchone()
     expected = json.loads(row["paths_json"])
     manifest = json.loads(repo.connection.execute("SELECT files_json FROM reading_publication").fetchone()[0])
-    path = "语文/分析记录/doc.md"
+    path = document_relative(repo)
     if damage == "generation":
         generation = "stale-generation"
     else:
@@ -418,7 +422,7 @@ def test_actual_batch_must_include_every_expected_destination(repo, monkeypatch,
     from qingzi_learning.export.markdown import MarkdownExporter
     original = MarkdownExporter._atomic_write
     def omit_document(self, destination, content):
-        if destination.name != "doc.md":
+        if destination.name != f"{repo.document_display_name('doc')}.md":
             original(self, destination, content)
     with repo.connection:
         repo.connection.execute("UPDATE reading_publication SET pending=1")

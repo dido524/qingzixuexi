@@ -72,6 +72,12 @@ def stored_analysis(repo: KnowledgeRepository) -> AnalysisResult:
         document_type=analysis.document_type,
         pages=((2, str(archived_page), "b" * 64),),
     )
+    repo.connection.execute(
+        "UPDATE documents SET created_at='2026-09-22 01:00:00', updated_at='2026-09-22 01:00:00' "
+        "WHERE document_id=?",
+        (analysis.document_id,),
+    )
+    repo.connection.commit()
     KnowledgeUpdater(repo, now=lambda: datetime(2026, 9, 15, tzinfo=timezone.utc)).apply(analysis)
     return analysis
 
@@ -87,6 +93,9 @@ def test_analysis_markdown_links_question_to_original_page(
     path = exporter.export_document(stored_analysis.document_id)
     text = path.read_text("utf-8")
 
+    assert path.name == "2026-09-22-数学-第01份.md"
+    assert "# 2026\\-09\\-22\\-数学\\-第01份 分析记录" in text
+    assert "doc-20260915-001 分析记录" not in text
     assert "source_page: 2" in text
     assert "page_002.jpg" in text
     assert "status: incorrect" in text
@@ -108,7 +117,7 @@ def test_subject_export_is_deterministic_and_surfaces_traceable_weakness(
     assert "趋势: 下降" in first_text
     assert "## 错题本" in first_text
     assert "第 2 页第 4 题" in first_text
-    assert "doc-20260915-001.md" in first_text
+    assert "2026-09-22-%E6%95%B0%E5%AD%A6-%E7%AC%AC01%E4%BB%BD.md" in first_text
     assert "../%E5%88%86%E6%9E%90%E8%AE%B0%E5%BD%95/" in first_text
 
 
@@ -189,12 +198,13 @@ def test_subject_export_writes_complete_error_index_and_resolvable_note_links(
     index_text = error_index.read_text("utf-8")
 
     assert index_text.count("第 1 页第 1 题") == 105
-    assert "数学\\-000" in index_text and "数学\\-104" in index_text
+    assert quote("第01份", safe="-._~") in index_text
+    assert quote("第105份", safe="-._~") in index_text
     assert "语文-000" not in index_text
-    assert (math_tree.analysis / "数学-000.md").exists()
-    assert (math_tree.analysis / "数学-104.md").exists()
+    friendly_files = sorted(math_tree.analysis.glob("*-数学-第*.md"))
+    assert len(friendly_files) == 105
     assert knowledge_page.exists()
-    assert quote("数学-104.md", safe="-._~") in knowledge_page.read_text("utf-8")
+    assert quote("第105份.md", safe="-._~") in knowledge_page.read_text("utf-8")
 
 
 def test_knowledge_point_pages_use_hash_namespace_without_reserved_or_case_collisions(

@@ -108,13 +108,15 @@ class ReportRenderer:
 
     def _evidence_link(self, subject: str, item: dict[str, Any]) -> str:
         try:
-            target = self.paths.safe_file_path(subject, "分析记录", f"{item['document_id']}.md")
+            self.paths.safe_file_path(subject, "分析记录", f"{item['document_id']}.md")
+            display_name = item.get("display_name") or item["document_id"]
+            target = self.paths.safe_file_path(subject, "分析记录", f"{display_name}.md")
             relative = os.path.relpath(target, self.report_directory).replace("\\", "/")
             href = "/".join(
                 segment if segment in (".", "..") else quote(segment, safe="-._~")
                 for segment in relative.split("/")
             )
-            label = f"{item['document_id']} · 题号 {item['question_id']}"
+            label = f"{display_name} · 题号 {item['question_id']}"
             return f'<a href="{html.escape(href, quote=True)}">{html.escape(label)}</a> '
         except ValueError:
             return ""
@@ -144,6 +146,7 @@ class ReportRenderer:
             attempts = " ".join(
                 self._evidence_link(retest["subject"], {
                     "document_id": attempt["document_id"],
+                    "display_name": attempt.get("display_name"),
                     "question_id": attempt["document_question_id"],
                 })
                 for attempt in retest["attempts"]

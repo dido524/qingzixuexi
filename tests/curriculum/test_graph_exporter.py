@@ -99,6 +99,7 @@ def test_explorer_payload_links_confirmed_evidence_without_question_text(repo, m
         "confirmed_knowledge_point_evidence",
         lambda subject, label: [{
             "document_id": "doc-1",
+            "display_name": "2026-09-20-数学-第01份",
             "question_id": "q1",
             "page": 1,
             "prompt_summary": "不得写入图谱载荷的题目正文",
@@ -112,7 +113,7 @@ def test_explorer_payload_links_confirmed_evidence_without_question_text(repo, m
 
     assert mastery["trend"] == "declining"
     assert mastery["evidence"] == [{
-        "label": "资料 doc-1 · 第 1 页 · 第 q1 题",
-        "href": "../../%E5%88%86%E6%9E%90%E8%AE%B0%E5%BD%95/doc-1.md",
+        "label": "资料 2026-09-20-数学-第01份 · 第 1 页 · 第 q1 题",
+        "href": "../../%E5%88%86%E6%9E%90%E8%AE%B0%E5%BD%95/2026-09-20-%E6%95%B0%E5%AD%A6-%E7%AC%AC01%E4%BB%BD.md",
     }]
     assert "不得写入" not in explorer.read_text("utf-8")

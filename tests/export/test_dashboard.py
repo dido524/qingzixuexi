@@ -61,12 +61,42 @@ def test_math_knowledge_map_links_photo_grounded_course_graph(dashboard: Dashboa
     page = dashboard.export().read_text("utf-8")
     assert "数学知识全景脑图" in page
     assert "数学掌握知识图谱" in page
-    assert "教材目录证据页" in page
-    assert "bnu-math-g5-upper-2024-review" in page
-    assert "教材目录确认" in page
+    assert "教材目录证据页" not in page
+    assert "北师大版数学五年级上册课程结构" not in page
     assert all(path.is_file() for path in dashboard.expected_paths())
     legacy = next(path for path in dashboard.expected_paths() if path.name == "课程知识图.html")
     assert "双视图数学知识图谱" in legacy.read_text("utf-8")
+
+
+def test_dashboard_uses_friendly_document_names_in_every_reading_section(
+    repo: KnowledgeRepository, dashboard: DashboardExporter
+) -> None:
+    analysis = AnalysisResult(
+        document_id="capture-unfriendly", subject=Subject.MATH, subject_confidence=.99,
+        document_type="作业", grading_mode=GradingMode.AUTO_GRADE,
+        teacher_mark_evidence=(),
+        questions=(QuestionAnalysis(
+            question_id="1", question_type=QuestionType.OBJECTIVE, page=1,
+            prompt_summary="小数乘法", student_answer="1", reference_answer="2",
+            status=QuestionStatus.INCORRECT, decision_source="teacher",
+            knowledge_points=("小数乘法",), error_categories=("计算",), confidence=.99,
+            reason="计算错误",
+        ),), summary="测试",
+    )
+    repo.create_document(
+        analysis.document_id, "数学", "作业",
+        ((1, str(repo.config.knowledge_root / "page.jpg"), "a" * 64),),
+    )
+    repo.save_analysis(analysis)
+    repo.connection.execute(
+        "UPDATE documents SET created_at='2026-09-22 01:00:00', updated_at='2026-09-22 01:00:00' "
+        "WHERE document_id=?", (analysis.document_id,),
+    )
+
+    page = dashboard.export().read_text("utf-8")
+
+    assert "2026-09-22-数学-第01份" in page
+    assert "capture-unfriendly" not in page
 
 
 def test_dashboard_graph_publication_is_byte_stable_across_retries(
@@ -102,9 +132,8 @@ def test_dashboard_publishes_school_and_enrichment_catalogs_independently(repo: 
     club.update(catalog_id="club-math-g6-upper-v1", track="enrichment", grade="6", title="兴趣班六年级数学")
     exporter = DashboardExporter(repo, curriculum_catalogs=[school, club])
     page = exporter.export().read_text("utf-8")
-    assert "bnu-math-g5-upper-2024-review" in page
-    assert "club-math-g6-upper-v1" in page
-    assert "兴趣班六年级数学" in page
+    assert "教材目录证据页" not in page
+    assert "兴趣班六年级数学" not in page
     assert all(path.is_file() for path in exporter.expected_paths())
 
 
@@ -203,7 +232,7 @@ def test_dashboard_embeds_escaped_snapshot_and_renders_weak_point(
     html = dashboard.export().read_text("utf-8")
 
     assert "一般现在时&lt;/script&gt;&lt;script&gt;bad()" in html
-    assert "一般现在时\\u003c/script\\u003e" in html
+    assert "<script>bad()" not in html
     assert "样本 1" in html
     assert "0.0%" in html
 
@@ -314,10 +343,12 @@ def test_dashboard_shows_monthly_collection_and_recent_trend_with_honest_samples
     encoded_analysis = quote("分析记录", safe="-._~")
     encoded_raw = quote("原始资料", safe="-._~")
     assert f'href="{encoded_math}/{encoded_points}/' in html
-    assert f'href="{encoded_math}/{encoded_analysis}/math-new.md"' in html
+    local_date = (now - timedelta(days=5) + timedelta(hours=8)).strftime("%Y-%m-%d")
+    friendly_name = quote(f"{local_date}-数学-第01份.md", safe="-._~")
+    assert f'href="{encoded_math}/{encoded_analysis}/{friendly_name}"' in html
     assert f'href="{encoded_math}/{encoded_raw}/math-old.jpg"' in html
     assert DashboardExporter(repo).markdown.knowledge_point_path("数学", "分数应用").exists()
-    assert (repo.config.knowledge_root / "数学" / "分析记录" / "math-new.md").exists()
+    assert (repo.config.knowledge_root / "数学" / "分析记录" / f"{local_date}-数学-第01份.md").exists()
 
 
 def test_dashboard_does_not_claim_a_recent_trend_from_one_confirmed_question(

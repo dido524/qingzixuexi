@@ -32,7 +32,7 @@ def history_with_retest(tmp_path: Path):
             "targets": [{
                 "knowledge_point": "分数应用", "category": "primary",
                 "representative_questions": [{
-                    "document_id": "original-doc", "question_id": "1",
+                    "document_id": "original-doc", "display_name": "2026-09-18-数学-第01份", "question_id": "1",
                     "prompt_summary": "分数应用原题", "status": "incorrect",
                 }],
             }],
@@ -78,7 +78,9 @@ def test_child_and_parent_reports_show_bounded_retest_progress(history_with_rete
 
     assert "这次复测已答对，建议再确认一次" in child
     assert "QZ-MATH-PROGRESS" in parent
-    assert "Q01" in parent and "retest-doc" in parent
+    display_name = second["retests"][0]["attempts"][0]["display_name"]
+    assert "Q01" in parent and display_name in parent
+    assert "retest-doc" not in parent
 
 
 def _analysis(document_id, status, *, source_exam_id=None, source_exam_question_id=None):

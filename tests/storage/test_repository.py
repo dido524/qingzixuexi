@@ -370,3 +370,22 @@ def test_create_document_upserts_pages_and_pending_job(repo: KnowledgeRepository
     pending = repo.list_pending()
     assert len(pending) == 1
     assert pending[0]["document_id"] == "doc-20260915-002"
+
+
+def test_document_display_name_uses_shanghai_date_subject_and_daily_sequence(
+    repo: KnowledgeRepository,
+) -> None:
+    for document_id, subject, created_at in (
+        ("capture-first", "数学", "2026-09-21 16:10:00"),
+        ("capture-second", "数学", "2026-09-21 17:20:00"),
+        ("capture-english", "英语", "2026-09-21 18:30:00"),
+    ):
+        repo.create_document(document_id, subject, "作业", ())
+        repo.connection.execute(
+            "UPDATE documents SET created_at=?, updated_at=? WHERE document_id=?",
+            (created_at, created_at, document_id),
+        )
+
+    assert repo.document_display_name("capture-first") == "2026-09-22-数学-第01份"
+    assert repo.document_display_name("capture-second") == "2026-09-22-数学-第02份"
+    assert repo.document_display_name("capture-english") == "2026-09-22-英语-第01份"

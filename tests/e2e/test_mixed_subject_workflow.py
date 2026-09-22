@@ -99,7 +99,8 @@ def assert_split_published(config, repo, controller, outcome, original_hashes):
         note = controller.markdown.document_path(subject, child_id).read_text("utf-8")
         assert all(point in note for point in points)
         assert all(point not in note for point in other_points)
-        assert child_id in dashboard
+        assert document["display_name"] in dashboard
+        assert child_id not in dashboard
         for question in document["questions"]:
             for point in question["knowledge_points"]:
                 stats = repo.get_knowledge_stats(subject, point)
