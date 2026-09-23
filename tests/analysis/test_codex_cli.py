@@ -68,6 +68,7 @@ def test_codex_command_is_read_only_and_uses_argument_list(runner, document):
     assert options["text"] is True and options["capture_output"] is True
     assert options["encoding"] == "utf-8"
     assert document.document_id in options["input"]
+    assert "question_id 必须原样保留卷面上印刷的完整题号" in options["input"]
     assert result.document_id == document.document_id
     assert result.questions[1].page == 2
     assert result.subject.value == "语文"

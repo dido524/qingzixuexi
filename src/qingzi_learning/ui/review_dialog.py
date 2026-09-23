@@ -3,6 +3,8 @@ import tkinter as tk
 
 from PIL import Image, ImageTk
 
+from qingzi_learning.grading.question_number import display_question_number
+
 
 BG, CARD, INK, MUTED, PINK = "#fff8fb", "#ffffff", "#3b3047", "#71677d", "#9e4074"
 
@@ -71,6 +73,10 @@ class ReviewDialog:
         self.meta_var = tk.StringVar(master=self.window)
         tk.Label(self.content, textvariable=self.meta_var, bg=BG, fg=MUTED,
                  font=("Microsoft YaHei UI", 10, "bold")).pack(fill="x", anchor="w", pady=(0, 8))
+        self.question_number_var = tk.StringVar(master=self.window)
+        tk.Label(self.content, textvariable=self.question_number_var, bg="#fff0f5", fg="#9e275f",
+                 font=("Microsoft YaHei UI", 17, "bold"), padx=14, pady=9,
+                 anchor="w").pack(fill="x", pady=(0, 10))
         self.preview = tk.Label(self.content, text="正在读取…", bg=CARD, fg=MUTED, pady=8)
         self.preview.pack(fill="x")
         image_actions = tk.Frame(self.content, bg=BG)
@@ -173,7 +179,7 @@ class ReviewDialog:
             self.correct_vars[key] = variable
             row = tk.Frame(self.correct_rows, bg="#f4fbf7")
             row.pack(fill="x", pady=2)
-            text = (f"第 {item.page} 页 · 第 {item.question_id} 题  |  "
+            text = (f"卷面题号 {display_question_number(item.question_id)} · 第 {item.page} 页  |  "
                     f"{item.prompt_summary or '题目未识别'}  |  "
                     f"学生答案：{item.student_answer or '未识别'}  |  置信度 {item.confidence:.0%}")
             check = tk.Checkbutton(row, text=text, variable=variable, command=self._update_correct_selection,
@@ -211,11 +217,13 @@ class ReviewDialog:
         self.original_button.configure(state="normal" if self.item and self.item.source_path.exists() else "disabled")
         if not self.item:
             self.meta_var.set("复核完成")
+            self.question_number_var.set("")
             for variable in self.detail_vars.values(): variable.set("")
             self.preview.configure(image="", text="暂无待家长确认的题目。")
             return
         q = self.item
-        self.meta_var.set(f"{q.subject}  ·  第 {q.page} 页  ·  第 {q.question_id} 题")
+        self.meta_var.set(f"{q.subject}  ·  第 {q.page} 页")
+        self.question_number_var.set(f"卷面题号：{display_question_number(q.question_id)}")
         self.detail_vars["prompt_summary"].set(q.prompt_summary or "未识别")
         self.detail_vars["student_answer"].set(q.student_answer or "未识别")
         self.detail_vars["reference_answer"].set(q.reference_answer or "暂无")
@@ -275,5 +283,5 @@ class ReviewDialog:
         self.on_save = self.on_batch = self.open_path = None
         self.detail_vars = {}
         for name in ("meta_var", "progress_var", "status_var", "answer_var", "note_var", "message_var",
-                     "correct_title_var", "_photo"):
+                     "correct_title_var", "question_number_var", "_photo"):
             if hasattr(self, name): setattr(self, name, None)

@@ -6,7 +6,7 @@ from qingzi_learning.domain import (
     AnalysisResult, CapturedDocument, CapturedPage, GradingMode,
     QuestionAnalysis, QuestionStatus, QuestionType, Subject,
 )
-from qingzi_learning.grading.annotation import AnnotationRenderer
+from qingzi_learning.grading.annotation import AnnotationRenderer, answer_box_stroke_width
 
 
 def test_renders_two_page_gallery_without_changing_originals(tmp_path):
@@ -72,3 +72,8 @@ def test_annotation_labels_live_in_a_side_gutter_without_covering_page_content(t
         assert rendered.getbbox() is not None
         assert any(rendered.getpixel((x, 420)) != (255, 255, 255)
                    for x in range(original.width + 10, rendered.width - 10, 10))
+
+
+def test_answer_box_outline_is_thin_at_common_scan_sizes():
+    assert answer_box_stroke_width(900, 1200) == 2
+    assert answer_box_stroke_width(1800, 2400) == 4

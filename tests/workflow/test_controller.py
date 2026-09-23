@@ -17,6 +17,7 @@ from qingzi_learning.domain import (
     AnalysisResult, GradingMode, PageSubjectAssignment, QuestionAnalysis,
     QuestionStatus, QuestionType, Subject,
 )
+from qingzi_learning.grading.annotation import ANNOTATION_LAYOUT_VERSION
 from qingzi_learning.storage.repository import KnowledgeRepository
 
 
@@ -124,7 +125,7 @@ def test_opening_review_migrates_legacy_annotation_to_non_covering_layout(setup)
     controller.refresh_review_annotations((outcome.job_id,))
 
     migrated = repo.get_job(outcome.job_id)
-    assert migrated.payload["annotation_layout_version"] == 2
+    assert migrated.payload["annotation_layout_version"] == ANNOTATION_LAYOUT_VERSION
     with Image.open(annotated) as result:
         assert result.width > old_width
 

@@ -13,9 +13,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 from qingzi_learning.domain import AnalysisResult, CapturedDocument, QuestionStatus
 from qingzi_learning.export.safe_write import _guard, atomic_write, atomic_write_bytes
+from qingzi_learning.grading.question_number import display_question_number
 
 
-ANNOTATION_LAYOUT_VERSION = 2
+ANNOTATION_LAYOUT_VERSION = 3
+
+
+def answer_box_stroke_width(width: int, height: int) -> int:
+    """Use a visible but unobtrusive outline at the scan's native scale."""
+    scale = max(1, min(width, height) / 900)
+    return max(1, round(2 * scale))
 
 
 @dataclass(frozen=True)
@@ -113,7 +120,7 @@ class AnnotationRenderer:
             left, top = round(x * width), round(y * height)
             right, bottom = round((x + box_width) * width), round((y + box_height) * height)
             color, label = colors[question.status]
-            stroke = max(3, round(5 * scale))
+            stroke = answer_box_stroke_width(width, height)
             draw.rectangle((left, top, right, bottom), outline=color, width=stroke)
             pending = question.decision_source == "model" and question.status in {
                 QuestionStatus.INCORRECT, QuestionStatus.PARTIAL,
@@ -124,7 +131,7 @@ class AnnotationRenderer:
             label_right = width + gutter_width - max(14, round(18 * scale))
             draw.rounded_rectangle((gutter_left, label_top, label_right, label_top + row_height),
                                    radius=max(7, round(9 * scale)), fill=color)
-            text = f"第 {question.question_id} 题  {label}"
+            text = f"题号 {display_question_number(question.question_id)}  {label}"
             draw.text((gutter_left + 10, label_top + max(5, round(7 * scale))), text,
                       font=body_font, fill=(255, 255, 255, 255))
             if pending:
@@ -153,7 +160,7 @@ class AnnotationRenderer:
                 verdict = labels[question.status] + ("（模型建议，待家长确认）" if pending else "")
                 rows.append(
                     "<tr>" + "".join(f"<td>{escape(str(value))}</td>" for value in (
-                        question.question_id, question.student_answer, verdict,
+                        display_question_number(question.question_id), question.student_answer, verdict,
                         question.reference_answer, question.reason,
                     )) + "</tr>"
                 )

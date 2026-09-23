@@ -289,6 +289,7 @@ def test_review_dialog_shows_evidence_requires_choice_and_advances(review_app):
     app.open_reviews(); deliver(app)
     dialog = app._review_dialog
     assert dialog.item.question_id == "1"
+    assert dialog.question_number_var.get() == "卷面题号：1"
     assert dialog.detail_vars["student_answer"].get() == "学生原答案"
     assert dialog.detail_vars["reason"].get() == "系统原理由"
     assert dialog.detail_vars["confidence"].get() == "60%"
@@ -400,6 +401,20 @@ def test_correct_questions_are_listed_for_individual_clicks(review_app, repo):
     assert len(dialog.correct_vars) == 2
     assert all(not variable.get() for variable in dialog.correct_vars.values())
     assert "逐项点击" in dialog.correct_title_var.get()
+
+
+@pytest.mark.parametrize(("stored", "displayed"), (
+    ("p1_q12", "12"),
+    ("p1_q4_2", "4（2）"),
+    ("q2_1a", "2（1）①"),
+    ("p2-q02", "2"),
+    ("p1_thinking", "思考题"),
+    ("二、3（1）", "二、3（1）"),
+))
+def test_internal_question_ids_are_presented_as_worksheet_numbers(stored, displayed):
+    from qingzi_learning.grading.question_number import display_question_number
+
+    assert display_question_number(stored) == displayed
 
 
 def test_review_preview_target_is_large_enough_to_read_in_the_dialog():
