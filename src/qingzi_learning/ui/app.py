@@ -256,6 +256,8 @@ class WorkflowWorker(threading.Thread):
             document_ids = ((scope,) if self._controller.repo.get_document(scope) else
                             tuple(job.payload.get("child_document_ids", ())) if job else ())
         if command.kind == "list_reviews":
+            if document_ids:
+                self._controller.refresh_review_annotations(tuple(document_ids))
             self._emit(self._command_event(command, "review_list", review_items=service.list_pending(document_ids)))
             return
         published = True

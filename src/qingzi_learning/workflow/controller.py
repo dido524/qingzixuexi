@@ -22,7 +22,7 @@ from qingzi_learning.export.dashboard import DashboardExporter
 from qingzi_learning.export.markdown import MarkdownExporter
 from qingzi_learning.export.publication import PublicationCoordinator
 from qingzi_learning.export.safe_write import _guard, atomic_write
-from qingzi_learning.grading.annotation import AnnotationRenderer
+from qingzi_learning.grading.annotation import ANNOTATION_LAYOUT_VERSION, AnnotationRenderer
 from qingzi_learning.knowledge.updater import KnowledgeUpdater
 from qingzi_learning.review.service import ReviewService
 from qingzi_learning.reporting.service import LearningReportService
@@ -535,6 +535,7 @@ class WorkflowController:
                 payload.update(
                     annotated_pages=[str(path) for path in artifacts.pages],
                     grading_gallery_path=str(artifacts.gallery),
+                    annotation_layout_version=ANNOTATION_LAYOUT_VERSION,
                 )
             child = WorkflowJob(document.document_id, "pending", analysis.subject.value, False, None, payload)
             children.append((child, document, analysis))
@@ -992,6 +993,18 @@ class WorkflowController:
         ))
         return _from_payload(payload, allow_legacy=legacy)
 
+    def refresh_review_annotations(self, document_ids: tuple[str, ...]) -> None:
+        """Upgrade cached review images once without rerunning the model."""
+        for document_id in document_ids:
+            try:
+                job = self.repo.get_job(document_id)
+                if job is None or not isinstance(job.payload.get("analysis"), dict):
+                    continue
+                self._ensure_annotations(job, self._analysis_from_payload(job.payload["analysis"]))
+            except (OSError, ValueError, RuntimeError):
+                # An old or damaged preview must not block access to the review.
+                continue
+
     def _ensure_annotations(self, job: WorkflowJob, analysis) -> WorkflowJob:
         """Render or verify deterministic grading copies from archived originals."""
         # Historical cached analyses predate coordinate OCR. Their ordinary
@@ -999,14 +1012,19 @@ class WorkflowController:
         # legacy evidence as a new image.
         if not any(question.answer_bbox is not None for question in analysis.questions):
             return job
+        cached_pages = tuple(Path(path) for path in job.payload.get("annotated_pages", ()))
+        cached_gallery = (Path(job.payload["grading_gallery_path"])
+                          if job.payload.get("grading_gallery_path") else None)
+        if (job.payload.get("annotation_layout_version") == ANNOTATION_LAYOUT_VERSION
+                and cached_pages and all(path.exists() for path in cached_pages)
+                and cached_gallery is not None and cached_gallery.exists()):
+            return job
         artifacts = self.annotations.render(self._document(job), analysis)
         paths = [str(path) for path in artifacts.pages]
-        if (job.payload.get("annotated_pages") == paths
-                and job.payload.get("grading_gallery_path") == str(artifacts.gallery)):
-            return job
         return self._save_if_current(job, replace(job, payload=dict(
             job.payload, annotated_pages=paths,
             grading_gallery_path=str(artifacts.gallery),
+            annotation_layout_version=ANNOTATION_LAYOUT_VERSION,
         )))
 
     @staticmethod

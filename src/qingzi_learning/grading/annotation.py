@@ -15,6 +15,9 @@ from qingzi_learning.domain import AnalysisResult, CapturedDocument, QuestionSta
 from qingzi_learning.export.safe_write import _guard, atomic_write, atomic_write_bytes
 
 
+ANNOTATION_LAYOUT_VERSION = 2
+
+
 @dataclass(frozen=True)
 class AnnotationArtifacts:
     pages: tuple[Path, ...]
@@ -43,7 +46,7 @@ class AnnotationRenderer:
                 raise ValueError("批改原图哈希不匹配")
             with Image.open(page.path) as opened:
                 image = opened.convert("RGB")
-            self._draw_page(image, page.page_number, tuple(
+            image = self._draw_page(image, page.page_number, tuple(
                 question for question in analysis.questions if question.page == page.page_number
             ))
             buffer = BytesIO()
@@ -76,23 +79,34 @@ class AnnotationRenderer:
                 continue
         return ImageFont.load_default()
 
-    def _draw_page(self, image: Image.Image, page_number: int, questions) -> None:
-        draw = ImageDraw.Draw(image, "RGBA")
+    def _draw_page(self, image: Image.Image, page_number: int, questions) -> Image.Image:
+        """Put verdict text beside the worksheet, never on top of its content."""
         width, height = image.size
         scale = max(1, min(width, height) / 900)
+        gutter_width = max(300, min(520, round(width * .42)))
+        composed = Image.new("RGB", (width + gutter_width, height), "white")
+        composed.paste(image, (0, 0))
+        draw = ImageDraw.Draw(composed, "RGBA")
         title_font = self._font(max(18, round(24 * scale)), True)
         body_font = self._font(max(14, round(18 * scale)), True)
-        banner_height = max(46, round(58 * scale))
-        draw.rounded_rectangle((12, 12, width - 12, 12 + banner_height), radius=12,
-                               fill=(255, 244, 249, 235), outline=(214, 82, 132, 255), width=max(2, round(3 * scale)))
-        draw.text((28, 24), f"晴子学习助手 · 第 {page_number} 页批改结果", font=title_font, fill=(105, 43, 73, 255))
+        draw.rectangle((width, 0, width + gutter_width, height), fill=(255, 248, 251, 255))
+        draw.line((width, 0, width, height), fill=(231, 199, 215, 255), width=max(2, round(2 * scale)))
+        gutter_left = width + max(18, round(22 * scale))
+        draw.text((gutter_left, max(18, round(22 * scale))), f"第 {page_number} 页批改",
+                  font=title_font, fill=(105, 43, 73, 255))
+        draw.text((gutter_left, max(54, round(62 * scale))), "彩色框对应原题，说明集中列在这里",
+                  font=self._font(max(12, round(14 * scale))), fill=(113, 103, 125, 255))
         colors = {
             QuestionStatus.CORRECT: ((34, 139, 94, 255), "✓ 正确"),
             QuestionStatus.INCORRECT: ((218, 57, 73, 255), "× 错误"),
             QuestionStatus.PARTIAL: ((224, 132, 32, 255), "△ 部分正确"),
             QuestionStatus.NEEDS_REVIEW: ((126, 87, 194, 255), "? 待确认"),
         }
-        for question in questions:
+        visible_questions = tuple(question for question in questions if question.answer_bbox is not None)
+        row_top = max(90, round(106 * scale))
+        row_height = max(40, round(48 * scale))
+        row_gap = max(7, round(9 * scale))
+        for index, question in enumerate(visible_questions):
             if question.answer_bbox is None:
                 continue
             x, y, box_width, box_height = question.answer_bbox
@@ -104,13 +118,24 @@ class AnnotationRenderer:
             pending = question.decision_source == "model" and question.status in {
                 QuestionStatus.INCORRECT, QuestionStatus.PARTIAL,
             }
-            text = f"{question.question_id}  {label}" + (" · 模型建议，待家长确认" if pending else "")
-            text_box = draw.textbbox((0, 0), text, font=body_font)
-            label_height = text_box[3] - text_box[1] + 14
-            label_width = min(width - left, text_box[2] - text_box[0] + 20)
-            label_top = max(0, top - label_height)
-            draw.rectangle((left, label_top, left + label_width, top), fill=color)
-            draw.text((left + 8, label_top + 5), text, font=body_font, fill=(255, 255, 255, 255))
+            label_top = row_top + index * (row_height + row_gap)
+            if label_top + row_height > height - 14:
+                break
+            label_right = width + gutter_width - max(14, round(18 * scale))
+            draw.rounded_rectangle((gutter_left, label_top, label_right, label_top + row_height),
+                                   radius=max(7, round(9 * scale)), fill=color)
+            text = f"第 {question.question_id} 题  {label}"
+            draw.text((gutter_left + 10, label_top + max(5, round(7 * scale))), text,
+                      font=body_font, fill=(255, 255, 255, 255))
+            if pending:
+                hint_font = self._font(max(10, round(12 * scale)))
+                draw.text((gutter_left + 10, label_top + row_height - max(16, round(18 * scale))),
+                          "AI 建议 · 待家长确认", font=hint_font, fill=(255, 255, 255, 235))
+        remaining = len(visible_questions) - max(0, (height - row_top - 14) // (row_height + row_gap))
+        if remaining > 0:
+            draw.text((gutter_left, height - max(34, round(38 * scale))),
+                      f"另有 {remaining} 道题，请见下方明细表", font=body_font, fill=(105, 43, 73, 255))
+        return composed
 
     @staticmethod
     def _gallery(document: CapturedDocument, analysis: AnalysisResult, outputs: tuple[Path, ...]) -> str:

@@ -76,6 +76,25 @@ def test_review_worker_stays_in_new_capture_after_each_confirmation(repo):
         worker.request_shutdown(); worker.join(timeout=10)
 
 
+def test_review_worker_refreshes_legacy_annotations_before_listing(repo, monkeypatch):
+    seed(repo, ("needs_review",), document_id="current")
+    refreshed = []
+    monkeypatch.setattr(
+        WorkflowController, "refresh_review_annotations",
+        lambda _controller, document_ids: refreshed.append(document_ids), raising=False,
+    )
+    worker = WorkflowWorker(repo.config, lambda: WorkflowController(
+        repo.config, object(), KnowledgeRepository(repo.config)), camera_factory=camera_unavailable)
+    worker.start()
+    try:
+        listed = take_operation(worker, worker.submit(
+            "list_reviews", review_scope_id="current", context="review_job", dialog_id="legacy"))
+        assert listed.kind == "review_list"
+        assert refreshed == [("current",)]
+    finally:
+        worker.request_shutdown(); worker.join(timeout=10)
+
+
 def test_completion_offers_legacy_all_correct_capture_for_explicit_review(repo):
     seed(repo, ("correct", "correct"), document_id="latest")
     worker = WorkflowWorker(repo.config, lambda: WorkflowController(
@@ -340,9 +359,14 @@ def test_review_dialog_batches_model_correct_but_not_wrong_or_teacher(review_app
     app.vm.session_id = "batch"; app.vm.sealed = True
     app.open_reviews(); deliver(app)
     dialog = app._review_dialog
+    assert dialog.item.question_id == "2"
+    assert [item.question_id for item in dialog.correct_items] == ["1"]
+    assert dialog.batch_button.cget("state") == "disabled"
+    assert "0" in dialog.batch_button.cget("text")
+    dialog.correct_vars[("batch", "1")].set(True)
+    dialog._update_correct_selection()
     assert dialog.batch_button.cget("state") == "normal"
     assert "1" in dialog.batch_button.cget("text")
-    monkeypatch.setattr("qingzi_learning.ui.review_dialog.messagebox.askyesno", lambda *a, **kw: True)
     dialog.batch_button.invoke()
     assert app.vm.busy
     saved = deliver(app)
@@ -355,11 +379,34 @@ def test_cancel_batch_confirmation_keeps_all_questions_pending(review_app, repo,
     seed(repo, ("correct", "correct"), document_id="batch")
     app.vm.session_id = "batch"; app.vm.sealed = True
     app.open_reviews(); deliver(app)
-    monkeypatch.setattr("qingzi_learning.ui.review_dialog.messagebox.askyesno", lambda *a, **kw: False)
+    # Nothing is submitted until the parent has explicitly clicked at least
+    # one correct-question checkbox.
     app._review_dialog.batch_button.invoke()
     assert not app.vm.busy
     assert [q.question_id for q in app._review_dialog.items] == ["1", "2"]
     assert not repo.review_history("batch", "1")
+
+
+def test_correct_questions_are_listed_for_individual_clicks(review_app, repo):
+    app = review_app
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    seed(repo, ("correct", "correct", "correct", "incorrect"), document_id="checklist")
+    app.vm.session_id = "checklist"; app.vm.sealed = True
+    app.open_reviews(); deliver(app)
+    dialog = app._review_dialog
+
+    assert [item.question_id for item in dialog.correct_items] == ["1", "2"]
+    assert dialog.item.question_id == "4"
+    assert len(dialog.correct_vars) == 2
+    assert all(not variable.get() for variable in dialog.correct_vars.values())
+    assert "逐项点击" in dialog.correct_title_var.get()
+
+
+def test_review_preview_target_is_large_enough_to_read_in_the_dialog():
+    from qingzi_learning.ui.review_dialog import _preview_target
+
+    assert _preview_target(1450, 1080) == (1410, 760)
+    assert _preview_target(900, 768) == (860, 520)
 
 
 def test_closed_dialog_callback_cannot_submit_review_to_new_dialog(review_app):

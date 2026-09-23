@@ -8,6 +8,7 @@ import subprocess
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from qingzi_learning.analysis.codex_cli import AnalysisError
 from qingzi_learning.capture.session import CaptureSession
@@ -97,6 +98,35 @@ def controller_for(setup):
     config, repo, analyzer, _ = setup
     return WorkflowController(config, analyzer, repo,
                               now=lambda: datetime(2026, 9, 15, tzinfo=timezone.utc))
+
+
+def test_opening_review_migrates_legacy_annotation_to_non_covering_layout(setup):
+    controller = controller_for(setup)
+    _, repo, analyzer, session = setup
+    analyze = analyzer.analyze
+    analyzer.analyze = lambda document: replace(
+        analyze(document), questions=tuple(
+            replace(question, answer_bbox=(.2, .3, .35, .08))
+            for question in analyze(document).questions
+        ),
+    )
+    outcome = controller.finish_and_analyze(session)
+    job = repo.get_job(outcome.job_id)
+    source = Path(job.payload["pages"][0]["path"])
+    annotated = Path(job.payload["annotated_pages"][0])
+    with Image.open(source) as old_image:
+        old_image.convert("RGB").save(annotated, format="PNG")
+        old_width = old_image.width
+    legacy_payload = dict(job.payload)
+    legacy_payload.pop("annotation_layout_version", None)
+    repo.save_workflow_job(replace(job, payload=legacy_payload))
+
+    controller.refresh_review_annotations((outcome.job_id,))
+
+    migrated = repo.get_job(outcome.job_id)
+    assert migrated.payload["annotation_layout_version"] == 2
+    with Image.open(annotated) as result:
+        assert result.width > old_width
 
 
 def test_unclear_page_pauses_before_any_document_is_written(mixed_setup):
