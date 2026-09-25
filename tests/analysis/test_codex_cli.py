@@ -69,6 +69,8 @@ def test_codex_command_is_read_only_and_uses_argument_list(runner, document):
     assert options["encoding"] == "utf-8"
     assert document.document_id in options["input"]
     assert "question_id 必须原样保留卷面上印刷的完整题号" in options["input"]
+    assert "每题 reason 使用2到4句简明中文" in options["input"]
+    assert "关键规则或解题步骤" in options["input"]
     assert result.document_id == document.document_id
     assert result.questions[1].page == 2
     assert result.subject.value == "语文"

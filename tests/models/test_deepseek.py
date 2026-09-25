@@ -145,6 +145,8 @@ def test_analyzer_reuses_strict_local_analysis_contract(tmp_path):
     assert result.questions[0].status.value == "incorrect"
     analysis_text = transport.calls[0][2]["messages"][0]["content"][0]["text"]
     assert "answer_bbox" in analysis_text
+    assert "每题 reason 使用2到4句简明中文" in analysis_text
+    assert "关键规则或解题步骤" in analysis_text
     schema_text = (
         files("qingzi_learning.schema") / "analysis-transport.schema.json"
     ).read_text("utf-8")

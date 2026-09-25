@@ -306,6 +306,51 @@ def test_review_dialog_shows_evidence_requires_choice_and_advances(review_app):
     assert not app.vm.busy and dialog.status_var.get() == ""
 
 
+def test_every_pending_question_has_complete_evidence_ai_and_parent_sections(review_app, repo):
+    app = review_app
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    seed(repo, ("correct", "incorrect"), document_id="full-cards")
+    app.vm.session_id = "full-cards"; app.vm.sealed = True
+
+    app.open_reviews(); deliver(app)
+
+    dialog = app._review_dialog
+    assert list(dialog.review_cards) == [("full-cards", "1"), ("full-cards", "2")]
+    correct = dialog.review_cards[("full-cards", "1")]
+    wrong = dialog.review_cards[("full-cards", "2")]
+    for card in (correct, wrong):
+        assert card.section_titles == ("题目与作答", "AI 判断依据", "家长最终判断")
+        assert card.detail_vars["prompt_summary"].get() == "概括事件"
+        assert card.detail_vars["student_answer"].get() == "学生原答案"
+        assert card.detail_vars["reference_answer"].get() == "参考原答案"
+        assert "系统原理由" in card.detail_vars["correct_method"].get()
+        assert "参考原答案" in card.detail_vars["correct_method"].get()
+        assert card.save_button.winfo_exists()
+    assert correct.quick_confirm_var is dialog.correct_vars[("full-cards", "1")]
+    assert wrong.quick_confirm_var is None
+
+
+def test_each_question_card_can_be_confirmed_independently(review_app, repo):
+    app = review_app
+    repo.config = replace(repo.config, review_all_model_questions=True)
+    seed(repo, ("needs_review", "incorrect"), document_id="independent-cards")
+    app.vm.session_id = "independent-cards"; app.vm.sealed = True
+    app.open_reviews(); deliver(app)
+    dialog = app._review_dialog
+    second = dialog.review_cards[("independent-cards", "2")]
+
+    second.status_var.set("incorrect")
+    second.answer_var.set("逐题修正答案")
+    second.note_var.set("逐题复核")
+    second.save_button.invoke()
+
+    assert app.vm.busy
+    saved = deliver(app)
+    assert saved.kind == "review_saved"
+    assert ("independent-cards", "2") not in dialog.review_cards
+    assert ("independent-cards", "1") in dialog.review_cards
+
+
 def test_review_dialog_keeps_actions_visible_in_short_window_and_formats_evidence(review_app):
     app = review_app
     app.open_reviews(); deliver(app)

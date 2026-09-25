@@ -4,7 +4,7 @@
 在不削弱现有本地校验、家长确认和知识库安全边界的前提下，为晴子学习助手提供原生 Codex 与 DeepSeek 两种模型选择，并向用户暴露可安全保存的 DeepSeek API 配置界面。
 
 ## Current Phase
-Phase 12: 2024 BNU grade-5 mathematics curriculum graph
+Phase 13: Per-question parent review cards and richer AI guidance
 
 ## Phases
 
@@ -84,6 +84,15 @@ Phase 12: 2024 BNU grade-5 mathematics curriculum graph
 - [x] Validate against the photographed contents, run regression checks, and deliver the exact artifacts
 - **Status:** complete
 
+### Phase 13: Per-Question Parent Review Cards and Richer AI Guidance
+- [x] Trace why only one question owns the evidence and decision sections
+- [x] Add failing UI and prompt tests for one complete review card per pending question
+- [x] Render every question with its own evidence, AI basis, and parent-decision controls
+- [x] Preserve quick confirmation for model-correct questions and one-question-at-a-time saving
+- [x] Require future model reasons to explain the correct method and key steps
+- [x] Run focused/full verification, back up the live database, build/install, and push GitHub main
+- **Status:** complete
+
 ## Key Questions
 1. How does the current model schema represent OCR text, question status, and page identity?
 2. Where can confirmation gate knowledge publication without duplicating review state?
@@ -115,6 +124,9 @@ Phase 12: 2024 BNU grade-5 mathematics curriculum graph
 | Full pytest run hit a native access violation at 96% | 1 | Traced it to pointer-width-unsafe ctypes defaults; declared exact DPAPI and LocalFree ABIs, then passed 1,000-cycle stress/Tk and full regression |
 | Focused regression command could not import source package because the worktree virtual environment does not install this worktree editable by default | 1 | Rerun with `PYTHONPATH=src` before interpreting the test result |
 | A compound PowerShell install command exited immediately after the installer, before restoring the custom icon | 1 | Restored icon in a separate command and verified shortcut target/icon and installed smoke check |
+| Phase 13 planning patch included context from MEMORY.md instead of task_plan.md | 1 | Reapplied only against exact task_plan.md headings |
+| Independent-card test initially omitted the desktop all-question review policy | 1 | Enabled `review_all_model_questions` in the fixture; production filtering remained unchanged |
+| The Windows `py` launcher was unavailable during backup | 1 | Used the repository virtual environment's verified Python interpreter for the SQLite backup API and integrity checks |
 
 ## Notes
 - The user previously authorized implementation without plan-by-plan confirmation; proceed after design self-review.

@@ -138,3 +138,24 @@
 - Final full suite: `718 passed, 1 skipped in 1636.68s`. PyInstaller build passed; source and bundled catalog SHA-256 match (`EBD6F41019380E3721DD5B3B0F174CF93CAAE095695C3E949119C0FDB5D4E571`); dist and installed `--smoke-check` both exited 0. Dist EXE SHA-256: `2C7EADFC38FE3E0A5B641AC4CE10EA337BC17A3301BA05F2D735AF9C3E6E648F`.
 - With the application closed, backed up the real SQLite file to `C:\Users\Home\AppData\Local\QingziLearningAssistant\backups\knowledge-before-curriculum-20260919-181146.sqlite3`. Source/backup SHA-256: `8706BDBC0B5D33C0EF0462A4B8416DB68BB6AF0A8E8ED0D2D3049A3E83BE3477`; integrity `ok`, 11 documents, 112 questions. Installed in the existing application directory, restored the custom desktop icon, and verified the installed EXE hash equals dist and the database hash/counts are unchanged.
 - The source photos and their private knowledge-base copies match byte-for-byte by SHA-256; none enter the public repository. Current catalog covers photographed contents only, not invented inner-chapter concepts. Future grade/club catalogs use separate IDs and tracks, but migration from the currently fixed `5th grade` root will be planned when actually needed.
+
+## Session: 2026-09-25 — Complete Per-Question Parent Review
+
+- Traced the one-question-only symptom to singleton Tk variables in `ReviewDialog`; all pending question records are present in SQLite.
+- Selected a bounded UI redesign: retain the shared large image preview, render a full three-section card for every question, keep per-question saves and explicit batch confirmation for AI-correct questions.
+- Live read-only check found nine model-pending questions; existing reason text ranges from missing-evidence notices to worked mathematical explanations.
+- Next step: add failing UI/prompt tests before changing production code.
+- Logged one planning patch context error and corrected it without changing product code.
+- Added three regression tests for full per-question cards, independent card saving, and detailed model-reason instructions.
+- RED verified: all three fail for the intended missing behavior (`review_cards` absent and prompt wording absent), not from test setup errors.
+- First GREEN run passed the full-card and prompt cases. The independent-save fixture omitted `review_all_model_questions=True`, so its model-error row was correctly excluded by the existing mixed-mode safety policy; fixed the fixture rather than weakening production filtering.
+- Implemented one complete scrollable review card per pending question, shared-preview selection, independent per-card saves, and retained explicit batch confirmation for AI-correct questions.
+- Added “正确做法” composition for historical analyses and richer 2–4 sentence reason instructions shared by Codex and DeepSeek.
+- Focused review/model regression: `75 passed`; no Tk variable-release warnings remained.
+- Generated and inspected local top/scrolled screenshots from live pending data; card hierarchy, wrapping, per-card controls, and fixed footer were readable at 1180×900.
+- Added a DeepSeek integration assertion proving it receives the shared detailed-reason instruction.
+- `git diff --check` and source compilation passed; focused review/Codex/DeepSeek regression remains `75 passed`.
+- Final pre-delivery full regression on the current product tree: `772 passed, 1 skipped in 1511.58s`; exit code `0`.
+- Confirmed the desktop app was closed, then backed up the live database and model settings to `C:\Users\Home\Documents\QingziLearningAssistant\backups\20260925-100759-per-question-review-cards`; source and backup both report `PRAGMA integrity_check = ok` and identical counts across every user table.
+- Rebuilt the PyInstaller package and installed it to `C:\Users\Home\AppData\Local\QingziLearningAssistant\app\晴子学习助手.exe`.
+- Installed EXE and build EXE SHA-256 both equal `BAEC5F43A67C05662FF81E1651226ECE67D8CB92C83803F07716AE28A2D5230B`; desktop shortcut target matches, installed `--smoke-check` exited `0`, and the live database still has 23 documents, 39 pages, and 248 questions with integrity `ok`.

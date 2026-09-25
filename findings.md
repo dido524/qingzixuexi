@@ -54,6 +54,15 @@
 ## Visual/Browser Findings
 - No external visual source used yet.
 
+## Per-Question Review Findings (2026-09-25)
+- `ReviewDialog` owns exactly one global `detail_vars`, `status_var`, `answer_var`, and `note_var`; `show()` binds them to a single `self.item`.
+- Model-correct questions are rendered separately as compact checkbox rows, so they never receive the three full evidence/decision sections.
+- The live database currently has nine unconfirmed model questions. Their evidence is present; the issue is presentation, not missing analysis data.
+- Preserve the existing storage and worker contracts: each question can still be saved through the existing single-question callback, while model-correct questions retain explicit checkbox-based batch confirmation.
+- Design: one scrollable review card per pending question, each with worksheet number, question/answers, AI status/reason/confidence/correct-method guidance, independent parent status/answer/note controls, and its own save action. Keep one shared large page preview and let each card select its page.
+- Existing analyses cannot be regenerated silently. For them, compose “正确做法” from the stored reference answer plus reason; future analyses will require the model reason to include the rule, key steps, error correction, and uncertainty details in concise Chinese.
+- Visual QA at 1180×900 confirmed that the shared preview remains large, each card has clear tinted grouping and a full-width save action, and multiple cards remain distinguishable while scrolling. The fixed footer remains visible.
+
 ## Model Switching Findings (2026-09-19)
 - The current runtime is already contract-oriented: Codex receives one fixed prompt plus images and must return the packaged strict analysis schema.
 - The official DeepSeek API now documents native image input for `deepseek-flash` over an OpenAI-compatible `https://api.deepseek.com` endpoint, including base64 image data URLs.
