@@ -265,8 +265,9 @@ def test_final_override_crash_recovers_through_ui_retry_without_legacy_dialog(co
             controller.confirm_page_subject(first.job_id, 2, "英语")
     app.worker._recover()
     app.poll_events()
-    rows = list(app.pages.get(0, "end"))
-    app.pages.selection_set(rows.index(first.job_id))
+    task_index = app._task_keys.index(first.job_id)
+    app.tasks.selection_set(task_index)
+    app._select_task(None)
     app.retry_selected()
 
     assert app._dialogs == {}, "All page overrides are durable; do not offer legacy batch subject choice"

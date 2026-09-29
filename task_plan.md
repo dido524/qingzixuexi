@@ -4,7 +4,7 @@
 在不削弱现有本地校验、家长确认和知识库安全边界的前提下，为晴子学习助手提供原生 Codex 与 DeepSeek 两种模型选择，并向用户暴露可安全保存的 DeepSeek API 配置界面。
 
 ## Current Phase
-Phase 13: Per-question parent review cards and richer AI guidance
+Phase 14: Parent-Friendly Capture and Recovery Task List
 
 ## Phases
 
@@ -90,6 +90,17 @@ Phase 13: Per-question parent review cards and richer AI guidance
 - [x] Render every question with its own evidence, AI basis, and parent-decision controls
 - [x] Preserve quick confirmation for model-correct questions and one-question-at-a-time saving
 - [x] Require future model reasons to explain the correct method and key steps
+- [x] Run focused/full verification, back up the live database, and build/install
+- [ ] Commit the verified changes and push GitHub main
+- **Status:** in_progress
+
+### Phase 14: Parent-Friendly Capture and Recovery Task List
+- [x] Trace the mixed current-page/recovery list and inspect live task classifications
+- [x] Add failing tests for friendly labels, actionable filtering, and selection routing
+- [x] Separate current pages from historical tasks and hide internal capture IDs
+- [x] Keep only genuinely actionable review/failure/recovery rows with clear statuses
+- [x] Preserve a visible historical-task list at compact window heights and inspect the rendered UI
+- [x] Add a private local-photo icon build path without committing the child's photo
 - [x] Run focused/full verification, back up the live database, build/install, and push GitHub main
 - **Status:** complete
 

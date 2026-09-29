@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 import os
 import queue
+import re
 import threading
 import time
 from typing import Callable, Literal, Protocol
@@ -63,6 +64,9 @@ class CompletionSummary:
     analysis_details_path: Path | None = None
     library_pending_count: int = 0
     grading_gallery_path: Path | None = None
+    display_name: str = ""
+    page_count: int = 0
+    recovery_action: str | None = None
 
 
 @dataclass(frozen=True)
@@ -455,10 +459,11 @@ class WorkflowWorker(threading.Thread):
 
     def _completion(self, outcome) -> CompletionSummary:
         folder = outcome.archived_pages[0].parent if outcome.archived_pages else outcome.recovery_path
-        if outcome.error_code == "recovery_failed": return CompletionSummary(saved_folder=folder)
+        if outcome.error_code == "recovery_failed":
+            return CompletionSummary(saved_folder=folder, recovery_action="locate_recovery")
         try:
+            job = self._controller.repo.get_job(outcome.job_id)
             if folder is None:
-                job = self._controller.repo.get_job(outcome.job_id)
                 if job and job.payload.get("session_dir"):
                     folder = Path(job.payload["session_dir"])
             doc = self._controller.repo.get_document(outcome.job_id)
@@ -473,10 +478,42 @@ class WorkflowWorker(threading.Thread):
                     questions_by_identity.setdefault((document_id, question.get("question_id", index)), question)
             questions = tuple(questions_by_identity.values())
             weak = tuple(dict.fromkeys(p for q in questions if q["status"] in {"incorrect", "partial"} for p in q["knowledge_points"]))[:3]
-            return CompletionSummary(folder, len(questions), sum(q["status"] in {"incorrect", "partial"} for q in questions), weak,
-                                     len(self._controller.repo.pending_review_ids(tuple(document_ids))), outcome.analysis_markdown,
-                                     int(snapshot["summary"]["pending_count"]), outcome.grading_gallery_path)
-        except (AttributeError, KeyError, TypeError, ValueError): return CompletionSummary(saved_folder=folder, analysis_details_path=outcome.analysis_markdown, grading_gallery_path=outcome.grading_gallery_path)
+            review_count = len(self._controller.repo.pending_review_ids(tuple(document_ids)))
+            display_document_id = outcome.job_id if doc else (document_ids[0] if document_ids else None)
+            try:
+                display_name = (self._controller.repo.document_display_name(display_document_id)
+                                if display_document_id else "")
+            except (AttributeError, ValueError):
+                display_name = ""
+            page_count = 0
+            for document_id in document_ids:
+                page_document = doc if document_id == outcome.job_id else self._controller.repo.get_document(document_id)
+                page_count += len((page_document or {}).get("pages", ()))
+            if outcome.state == "needs_subject_confirmation":
+                recovery_action = "confirm_subject"
+            elif review_count:
+                recovery_action = "confirm_review"
+            elif job and job.payload.get("export_pending"):
+                recovery_action = "repair_export"
+            elif outcome.error_code or (job is not None and not getattr(job, "knowledge_applied", True)):
+                recovery_action = "retry_analysis"
+            else:
+                recovery_action = None
+            return CompletionSummary(
+                folder, len(questions),
+                sum(q["status"] in {"incorrect", "partial"} for q in questions),
+                weak, review_count, outcome.analysis_markdown,
+                int(snapshot["summary"]["pending_count"]), outcome.grading_gallery_path,
+                display_name, page_count, recovery_action,
+            )
+        except (AttributeError, KeyError, TypeError, ValueError):
+            action = ("confirm_subject" if outcome.state == "needs_subject_confirmation"
+                      else "retry_analysis" if outcome.error_code else None)
+            return CompletionSummary(
+                saved_folder=folder, analysis_details_path=outcome.analysis_markdown,
+                grading_gallery_path=outcome.grading_gallery_path,
+                recovery_action=action,
+            )
 
     def _release(self) -> None:
         self._release_camera()
@@ -794,18 +831,24 @@ class LearningAssistantApp:
         self.preview_shell.bind("<Configure>",self._on_preview_resize)
 
         side=tk.Frame(body,bg=colors["card"],highlightbackground=colors["line"],highlightthickness=1)
-        self.side_panel=side; side.grid(row=0,column=1,sticky="nsew"); side.grid_columnconfigure(0,weight=1); side.grid_rowconfigure(3,weight=1)
+        self.side_panel=side; side.grid(row=0,column=1,sticky="nsew"); side.grid_columnconfigure(0,weight=1); side.grid_rowconfigure(5,weight=1,minsize=72)
         tk.Label(side,text="今天的学习记录",font=("Microsoft YaHei UI",13,"bold"),fg=colors["ink"],bg=colors["card"]).grid(row=0,column=0,sticky="w",padx=16,pady=(14,8))
         self.status_var=tk.StringVar(master=self.root,value=self.vm.status)
         tk.Label(side,textvariable=self.status_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",10),fg=colors["pink_dark"],bg=colors["pink_soft"],padx=12,pady=9).grid(row=1,column=0,sticky="ew",padx=14,pady=(0,10))
-        tk.Label(side,text="已拍页面与待处理任务",font=("Microsoft YaHei UI",10,"bold"),fg=colors["ink"],bg=colors["card"]).grid(row=2,column=0,sticky="w",padx=16)
-        self.pages=tk.Listbox(side,height=6,borderwidth=0,highlightthickness=1,highlightbackground=colors["line"],selectbackground=colors["pink"],selectforeground="white",activestyle="none",font=("Microsoft YaHei UI",10))
-        self.pages.bind("<<ListboxSelect>>",self._select); self.pages.grid(row=3,column=0,sticky="nsew",padx=14,pady=(6,10))
+        self.current_pages_title=tk.Label(side,text="本次已拍页面",font=("Microsoft YaHei UI",10,"bold"),fg=colors["ink"],bg=colors["card"])
+        self.current_pages_title.grid(row=2,column=0,sticky="w",padx=16)
+        self.pages=tk.Listbox(side,height=3,borderwidth=0,highlightthickness=1,highlightbackground=colors["line"],selectbackground=colors["pink"],selectforeground="white",activestyle="none",font=("Microsoft YaHei UI",10))
+        self.pages.bind("<<ListboxSelect>>",self._select); self.pages.grid(row=3,column=0,sticky="ew",padx=14,pady=(6,10))
+        self.recovery_tasks_title=tk.Label(side,text="需要处理的历史任务",font=("Microsoft YaHei UI",10,"bold"),fg=colors["ink"],bg=colors["card"])
+        self.recovery_tasks_title.grid(row=4,column=0,sticky="w",padx=16)
+        self.tasks=tk.Listbox(side,height=4,borderwidth=0,highlightthickness=1,highlightbackground=colors["line"],selectbackground=colors["pink"],selectforeground="white",activestyle="none",font=("Microsoft YaHei UI",9))
+        self.tasks.bind("<<ListboxSelect>>",self._select_task); self.tasks.grid(row=5,column=0,sticky="nsew",padx=14,pady=(6,10))
+        self._task_keys=[]
         self.detail_var=tk.StringVar(master=self.root,value="本次资料：尚未分析")
-        tk.Label(side,textvariable=self.detail_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",9),fg=colors["ink"],bg=colors["lavender"],padx=12,pady=9).grid(row=4,column=0,sticky="ew",padx=14,pady=(0,8))
+        tk.Label(side,textvariable=self.detail_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",9),fg=colors["ink"],bg=colors["lavender"],padx=12,pady=9).grid(row=6,column=0,sticky="ew",padx=14,pady=(0,8))
         self.saved_path_var=tk.StringVar(master=self.root); self.selected_path_var=tk.StringVar(master=self.root)
-        tk.Label(side,textvariable=self.saved_path_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(row=5,column=0,sticky="ew",padx=16)
-        tk.Label(side,textvariable=self.selected_path_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(row=6,column=0,sticky="ew",padx=16,pady=(2,12))
+        tk.Label(side,textvariable=self.saved_path_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(row=7,column=0,sticky="ew",padx=16)
+        tk.Label(side,textvariable=self.selected_path_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(row=8,column=0,sticky="ew",padx=16,pady=(2,12))
 
         self.footer=tk.Frame(self.root,bg=colors["card"],highlightbackground=colors["line"],highlightthickness=1)
         self.footer.grid(row=2,column=0,sticky="ew"); self.buttons={}
@@ -1078,9 +1121,9 @@ class LearningAssistantApp:
     def retry_selected(self):
         if self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None:
             return
-        item=self.pages.curselection()
-        if item:
-            key=self.pages.get(item[0]); event=self.vm.recovered_tasks.get(key)
+        event=self._selected_recovery()
+        if event:
+            key=(event.outcome.job_id if event.outcome else str(event.page_path))
             if event and event.kind == "recovered_capture" and event.page_path:
                 self._submit("resume_capture","正在恢复拍摄会话…",True,job_id=str(event.page_path))
             elif event and event.outcome:
@@ -1100,10 +1143,15 @@ class LearningAssistantApp:
     def _select(self,_):
         item=self.pages.curselection()
         if item:
+            self.tasks.selection_clear(0,"end")
             value=self.pages.get(item[0])
             if value.startswith("第 "):
                 number=int(value.split()[1]); self.vm.selected_page_number=number
                 if number <= len(self.vm.page_paths): self.vm.frozen_preview_jpeg=_page_preview(self.vm.page_paths[number-1])
+        self._refresh()
+    def _select_task(self,_):
+        if self.tasks.curselection():
+            self.pages.selection_clear(0,"end")
         self._refresh()
     def _schedule_poll(self):
         if not self._destroyed and self._poll_after_id is None:self._poll_after_id=self.root.after(50,self.poll_events)
@@ -1130,6 +1178,7 @@ class LearningAssistantApp:
                 if (accepted and event.kind == "workflow_outcome" and event.context == "active_capture"
                         and self.vm.matches_session(event)):
                     self.pages.selection_clear(0, "end")
+                    self.tasks.selection_clear(0, "end")
                 if accepted and event.kind in {"review_list", "review_saved", "review_conflict"} and self._review_dialog is not None:
                     self._review_dialog.show(self.vm.review_items, self.vm.review_message)
                 elif accepted and event.kind == "worker_error" and event.dialog_id == self.vm.review_dialog_id and self._review_dialog is not None:
@@ -1160,11 +1209,11 @@ class LearningAssistantApp:
         self._show_next_recovered_page_subject()
         self._refresh()
         if preferred_recovery_id is not None:
-            rows=list(self.pages.get(0,"end"))
-            if preferred_recovery_id in rows:
-                self.pages.selection_clear(0,"end")
-                self.pages.selection_set(rows.index(preferred_recovery_id))
-                self.pages.see(rows.index(preferred_recovery_id))
+            if preferred_recovery_id in self._task_keys:
+                index=self._task_keys.index(preferred_recovery_id)
+                self.tasks.selection_clear(0,"end")
+                self.tasks.selection_set(index)
+                self.tasks.see(index)
                 self._refresh()
         self._schedule_poll()
 
@@ -1288,6 +1337,47 @@ class LearningAssistantApp:
                         session_generation=session_generation,session_id=session_id):
             if context=="active_capture": self.vm.on_subject_chosen(subject)
             d.destroy(); self._dialogs.pop(job_id,None); self._dialog_context.pop(job_id,None)
+    @staticmethod
+    def _friendly_document_name(display_name, subject):
+        match=re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})-(.+)-第(\d+)份",display_name or "")
+        if match:
+            _,month,day,name,sequence=match.groups()
+            return f"{month}/{day} {name} 第{sequence}份"
+        return f"{subject or '学科未定'} · 历史资料"
+    def _recovery_task_label(self,event):
+        if event.kind == "recovered_capture":
+            return "未完成的拍摄｜可继续拍摄"
+        outcome=event.outcome
+        summary=event.completion or CompletionSummary()
+        if outcome is None:
+            return None
+        action=summary.recovery_action
+        if action is None:
+            if outcome.state == "needs_subject_confirmation": action="confirm_subject"
+            elif summary.review_count: action="confirm_review"
+            elif outcome.error_code == "recovery_failed": action="locate_recovery"
+            elif outcome.error_code: action="retry_analysis"
+            else: return None
+        status={
+            "confirm_subject":"待确认学科",
+            "confirm_review":f"待确认{summary.review_count}题",
+            "retry_analysis":"分析失败" if outcome.error_code else "处理未完成",
+            "repair_export":"待更新知识库",
+            "locate_recovery":"恢复失败",
+        }.get(action)
+        if status is None:
+            return None
+        name=self._friendly_document_name(summary.display_name,outcome.subject)
+        return f"{name} · {status}"
+    def _recovery_task_rows(self):
+        rows=[]
+        for key,event in self.vm.recovered_tasks.items():
+            if key == self.vm.session_id:
+                continue
+            label=self._recovery_task_label(event)
+            if label:
+                rows.append((key,label))
+        return rows
     def _refresh(self):
         if self._page_subject_dialog is not None:
             self._page_subject_dialog.set_busy(self.vm.busy)
@@ -1295,18 +1385,36 @@ class LearningAssistantApp:
             self._learning_center.set_busy(self.vm.busy)
         self.status_var.set(self.vm.status)
         self.page_var.set(f"准备拍摄第 {self.vm.page_number} 页  ·  已拍 {self.vm.captured_page_count} 页")
-        wanted=[*(f"第 {i} 页" for i,_ in enumerate(self.vm.page_paths,1)),*self.vm.recovered_tasks.keys()]
+        wanted=[f"第 {i} 页" for i,_ in enumerate(self.vm.page_paths,1)]
         current=list(self.pages.get(0,"end")); selected=self.pages.get(self.pages.curselection()[0]) if self.pages.curselection() else None
         if current != wanted:
             self.pages.delete(0,"end")
             for row in wanted:self.pages.insert("end",row)
             if selected in wanted:
                 index=wanted.index(selected); self.pages.selection_set(index); self.pages.see(index)
-        summary=self.vm.completion; weak="、".join(summary.weak_knowledge_points) or "尚无"
-        self.detail_var.set(f"本次资料：{summary.question_count} 题，错题 {summary.error_count}，待确认 {summary.review_count}，薄弱点 {weak}\n知识库累计待处理：{summary.library_pending_count}")
+        selected_task_key=(self._task_keys[self.tasks.curselection()[0]]
+                           if self.tasks.curselection() and self.tasks.curselection()[0] < len(self._task_keys)
+                           else None)
+        task_rows=self._recovery_task_rows()
+        task_keys=[key for key,_ in task_rows]
+        task_labels=[label for _,label in task_rows]
+        visible_tasks=task_labels or ["暂无需要处理的历史任务"]
+        if list(self.tasks.get(0,"end")) != visible_tasks or self._task_keys != task_keys:
+            self.tasks.delete(0,"end")
+            for row in visible_tasks:self.tasks.insert("end",row)
+            self._task_keys=task_keys
+            if selected_task_key in task_keys:
+                index=task_keys.index(selected_task_key); self.tasks.selection_set(index); self.tasks.see(index)
+        summary=self.vm.completion
+        selected_event=self._selected_recovery()
         target=self._selected_completion()
+        detail_summary=target if selected_event is not None else summary
+        weak="、".join(detail_summary.weak_knowledge_points) or "尚无"
+        pages=f"{detail_summary.page_count} 页，" if detail_summary.page_count else ""
+        detail_prefix="选中任务" if selected_event is not None else "本次资料"
+        self.detail_var.set(f"{detail_prefix}：{pages}{detail_summary.question_count} 题，错题 {detail_summary.error_count}，待确认 {detail_summary.review_count}，薄弱点 {weak}\n知识库累计待处理：{detail_summary.library_pending_count}")
         self.saved_path_var.set(f"本次保存位置：{summary.saved_folder or '尚未保存'}")
-        self.selected_path_var.set(f"选中任务位置：{target.saved_folder or '暂无可打开的位置'}" if self._selected_recovery() else "")
+        self.selected_path_var.set(f"选中任务位置：{target.saved_folder or '暂无可打开的位置'}" if selected_event else "")
         data=self.vm.frozen_preview_jpeg or self.vm.live_preview_jpeg
         resample=Image.Resampling.LANCZOS if self.vm.frozen_preview_jpeg else Image.Resampling.BILINEAR
         resample_changed=resample != self._preview_resample
@@ -1359,8 +1467,9 @@ class LearningAssistantApp:
         states["capture"]=(self.vm.can_capture or self.vm.can_start_new) and not page_modal
         for name,allowed in states.items(): self._style_button(self.buttons[name],allowed and not self._closing)
     def _selected_recovery(self):
-        selected=self.pages.curselection()
-        return self.vm.recovered_tasks.get(self.pages.get(selected[0])) if selected else None
+        selected=self.tasks.curselection()
+        if not selected or selected[0] >= len(self._task_keys): return None
+        return self.vm.recovered_tasks.get(self._task_keys[selected[0]])
     def _selected_completion(self):
         event=self._selected_recovery()
         if event is None:return self.vm.completion

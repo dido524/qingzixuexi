@@ -1,6 +1,7 @@
 ﻿[CmdletBinding()]
 param(
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [string]$IconPhoto
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,7 +52,14 @@ try {
     & $python -m pip install -r (Join-Path $projectRoot 'requirements-build.txt')
     if ($LASTEXITCODE -ne 0) { throw "无法安装固定版本的打包依赖。" }
 
-    & $python $iconSource
+    if ([string]::IsNullOrWhiteSpace($IconPhoto)) {
+        & $python $iconSource
+    }
+    else {
+        $resolvedIconPhoto = (Resolve-Path -LiteralPath $IconPhoto -ErrorAction Stop).Path
+        $icon = Join-Path $projectRoot 'build\private-photo-icon.ico'
+        & $python $iconSource --photo $resolvedIconPhoto --output $icon
+    }
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $icon -PathType Leaf)) {
         throw "无法生成程序图标。"
     }

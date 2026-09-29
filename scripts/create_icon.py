@@ -1,12 +1,13 @@
-"""Create the bundled Windows icon from the reviewable SVG colour palette.
+"""Create the bundled Windows icon or a private local-photo variant.
 
 This runs only as part of a local package build.  It does not read user files,
 open a camera, or contact Codex.
 """
 
+from argparse import ArgumentParser
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,45 @@ def draw_icon(size: int) -> Image.Image:
     return image
 
 
+def draw_photo_icon(photo_path: Path, size: int) -> Image.Image:
+    with Image.open(photo_path) as source:
+        source = ImageOps.exif_transpose(source).convert("RGB")
+        inset = max(3, size // 28)
+        portrait = ImageOps.fit(
+            source,
+            (size - inset * 2, size - inset * 2),
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.38),
+        ).convert("RGBA")
+
+    image = Image.new("RGBA", (size, size), "#F8DDEC")
+    mask = Image.new("L", portrait.size, 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.rounded_rectangle(
+        (0, 0, portrait.width - 1, portrait.height - 1),
+        radius=max(2, size // 7),
+        fill=255,
+    )
+    image.paste(portrait, (inset, inset), mask)
+    return image
+
+
+def create_icon(*, photo_path: Path | None = None, output_path: Path = OUTPUT) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image = draw_photo_icon(photo_path, 256) if photo_path else draw_icon(256)
+    image.save(
+        output_path,
+        format="ICO",
+        sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
+    )
+    return output_path
+
+
 if __name__ == "__main__":
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    image = draw_icon(256)
-    image.save(OUTPUT, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    parser = ArgumentParser()
+    parser.add_argument("--photo", type=Path)
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    arguments = parser.parse_args()
+    if arguments.photo and not arguments.photo.is_file():
+        parser.error(f"photo does not exist: {arguments.photo}")
+    create_icon(photo_path=arguments.photo, output_path=arguments.output)

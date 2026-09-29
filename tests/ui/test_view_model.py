@@ -273,6 +273,9 @@ def test_page_subject_dialog_refuses_main_window_workflow_commands(withdrawn_app
     app.worker.submit = submit
     app.vm.recovered_tasks["old-job"] = UiEvent(
         "recovered_job", outcome=WorkflowOutcome("old-job", "pending", "数学"),
+        completion=CompletionSummary(
+            display_name="2026-09-20-数学-第01份", recovery_action="retry_analysis",
+        ),
     )
     app._refresh()
     _select_recovery(app, "old-job")
@@ -1280,10 +1283,99 @@ def _deliver_worker_result(app):
 
 
 def _select_recovery(app, key):
-    rows = list(app.pages.get(0, "end"))
-    app.pages.selection_clear(0, "end")
-    app.pages.selection_set(rows.index(key))
-    app._select(None)
+    index = app._task_keys.index(key)
+    app.tasks.selection_clear(0, "end")
+    app.tasks.selection_set(index)
+    app._select_task(None)
+
+
+def test_current_pages_and_actionable_history_are_separate_and_capture_ids_hidden(withdrawn_app):
+    app, _ = withdrawn_app
+    app.vm.on_page_captured(1, Path("page_001.jpg"))
+    app.vm.apply_event(UiEvent(
+        "recovered_job",
+        outcome=WorkflowOutcome("capture-finished", "pending", "数学"),
+        completion=CompletionSummary(
+            display_name="2026-09-25-数学-第01份", page_count=2,
+            recovery_action=None,
+        ),
+    ))
+    app.vm.apply_event(UiEvent(
+        "recovered_job",
+        outcome=WorkflowOutcome("capture-review", "needs_review", "数学"),
+        completion=CompletionSummary(
+            display_name="2026-09-29-数学-第01份", page_count=2,
+            question_count=17, review_count=17, recovery_action="confirm_review",
+        ),
+    ))
+    app.vm.apply_event(UiEvent(
+        "recovered_job",
+        outcome=WorkflowOutcome(
+            "capture-failed", "pending", "英语", error_code="invalid_deepseek_response",
+        ),
+        completion=CompletionSummary(
+            display_name="2026-09-19-英语-第02份", page_count=1,
+            recovery_action="retry_analysis",
+        ),
+    ))
+
+    app._refresh()
+
+    assert app.current_pages_title.cget("text") == "本次已拍页面"
+    assert app.recovery_tasks_title.cget("text") == "需要处理的历史任务"
+    assert app.pages.get(0, "end") == ("第 1 页",)
+    rows = app.tasks.get(0, "end")
+    assert len(rows) == 2
+    assert any("09/29 数学 第01份" in row and "待确认17题" in row for row in rows)
+    assert any("09/19 英语 第02份" in row and "分析失败" in row for row in rows)
+    assert not any("capture-" in row for row in rows)
+    assert app._task_keys == ["capture-review", "capture-failed"]
+
+
+def test_actionable_history_remains_visible_at_compact_supported_window_height(withdrawn_app):
+    app, _ = withdrawn_app
+    app.root.geometry("1200x780")
+    app.vm.apply_event(UiEvent(
+        "recovered_job",
+        outcome=WorkflowOutcome("capture-review", "needs_review", "数学"),
+        completion=CompletionSummary(
+            display_name="2026-09-29-数学-第01份", page_count=2,
+            review_count=5, recovery_action="confirm_review",
+        ),
+    ))
+    app._refresh()
+    app.root.deiconify()
+    app.root.update_idletasks()
+    app.root.update()
+
+    assert app.tasks.winfo_height() >= 60
+    assert "待确认5题" in app.tasks.get(0)
+    import tkinter.font as tkfont
+    row_font = tkfont.Font(root=app.root, font=app.tasks.cget("font"))
+    assert row_font.measure(app.tasks.get(0)) <= app.tasks.winfo_width() - 10
+
+    app.root.withdraw()
+
+
+def test_historical_task_selection_uses_hidden_internal_key(withdrawn_app):
+    app, _ = withdrawn_app
+    expected = UiEvent(
+        "recovered_job",
+        outcome=WorkflowOutcome("capture-review", "needs_review", "数学"),
+        completion=CompletionSummary(
+            display_name="2026-09-29-数学-第01份", page_count=2,
+            review_count=3, recovery_action="confirm_review",
+        ),
+    )
+    app.vm.apply_event(expected)
+    app._refresh()
+
+    _select_recovery(app, "capture-review")
+
+    assert app._selected_recovery() is expected
+    assert "capture-review" not in app.tasks.get(0)
+    assert "选中任务：2 页" in app.detail_var.get()
+    assert "待确认 3" in app.detail_var.get()
 
 
 @pytest.fixture
@@ -1348,8 +1440,12 @@ def test_saved_and_selected_recovery_paths_are_visible_and_actions_are_bound(wit
     recovered_details = recovered / "old-analysis.md"; recovered_details.touch()
     corrupt = tmp_path / "corrupt-session"; corrupt.mkdir()
     app.vm.completion = CompletionSummary(saved_folder=current, analysis_details_path=current_details)
-    app.vm.apply_event(UiEvent("recovered_job", outcome=WorkflowOutcome("old", "completed", "数学"),
-                               completion=CompletionSummary(recovered, analysis_details_path=recovered_details)))
+    app.vm.apply_event(UiEvent("recovered_job", outcome=WorkflowOutcome("old", "pending", "数学"),
+                               completion=CompletionSummary(
+                                   recovered, analysis_details_path=recovered_details,
+                                   display_name="2026-09-20-数学-第01份",
+                                   recovery_action="repair_export",
+                               )))
     app.vm.apply_event(UiEvent("recovered_job", outcome=WorkflowOutcome("broken", "pending", None,
                                error_code="recovery_failed", recovery_path=corrupt)))
     app._refresh()
@@ -1367,11 +1463,14 @@ def test_saved_and_selected_recovery_paths_are_visible_and_actions_are_bound(wit
     app.buttons["folder"].invoke()
     assert opened[-1] == corrupt
     app.vm.apply_event(UiEvent("recovered_job", outcome=WorkflowOutcome("missing", "pending", "英语")))
-    app._refresh(); _select_recovery(app, "missing")
-    assert app.buttons["folder"].cget("state") == "disabled"
-    assert app.buttons["details"].cget("state") == "disabled"
+    app._refresh()
+    assert "missing" not in app._task_keys
+    app.tasks.selection_clear(0, "end")
+    app._select_task(None)
+    assert app.buttons["folder"].cget("state") == "normal"
+    assert app.buttons["details"].cget("state") == "normal"
     app.open_folder(); app.open_details()
-    assert opened[-1] == corrupt
+    assert opened[-2:] == [current, current_details]
 
 
 def test_existing_analysis_button_prefers_grading_gallery(withdrawn_app, tmp_path):

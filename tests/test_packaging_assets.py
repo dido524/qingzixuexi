@@ -12,6 +12,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from PIL import Image
+
 def _root() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -50,6 +52,31 @@ def test_build_script_packages_required_schemas_and_windows_runtime_dependencies
     assert "--icon" in text
     assert "--version-file" in text
     assert "-m pytest -q" in text
+
+
+def test_build_script_accepts_a_private_local_photo_icon_without_committing_it() -> None:
+    root = _root()
+    text = _script(root / "scripts" / "build.ps1")
+
+    assert "[string]$IconPhoto" in text
+    assert "private-photo-icon.ico" in text
+    assert "--photo" in text
+    assert "--output" in text
+
+
+def test_icon_generator_builds_a_multisize_icon_from_a_local_photo(tmp_path: Path) -> None:
+    from scripts.create_icon import create_icon
+
+    photo = tmp_path / "child.jpg"
+    output = tmp_path / "child.ico"
+    Image.new("RGB", (640, 960), "#CC88AA").save(photo, format="JPEG")
+
+    create_icon(photo_path=photo, output_path=output)
+
+    assert output.is_file()
+    with Image.open(output) as icon:
+        assert icon.format == "ICO"
+        assert {(16, 16), (32, 32), (48, 48), (256, 256)} <= icon.ico.sizes()
 
 
 def test_package_contract_includes_math_graph_and_mapping_data() -> None:

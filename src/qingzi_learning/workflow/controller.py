@@ -255,14 +255,42 @@ class WorkflowController:
             except Exception:
                 outcomes[""] = self._recovery_error("", self.config.app_data_root.absolute())
                 return list(outcomes.values())
-            latest_root_job = None
+            jobs = {}
             for job_id in job_ids:
                 try:
-                    job = self._require_job(job_id)
-                    corrupt_publication = (job.knowledge_applied and job.state in {"completed", "needs_review"}
-                                           and not self.publication.current())
-                    if job.state in {"spooled", "analyzing"} or job.payload.get("export_pending") or corrupt_publication:
+                    jobs[job_id] = self._restore_stale_publication_marker(
+                        self._require_job(job_id)
+                    )
+                except Exception:
+                    directory = (root / job_id if re.fullmatch(
+                        r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", job_id) else root)
+                    outcomes[job_id] = self._recovery_error(job_id, directory)
+            latest_root_job = next((job for job in reversed(tuple(jobs.values()))
+                                    if not job.payload.get("parent_job_id")), None)
+            try:
+                publication_current = self.publication.current()
+            except Exception:
+                publication_current = False
+            repair_owner_id = (
+                latest_root_job.job_id
+                if latest_root_job is not None and latest_root_job.knowledge_applied
+                and latest_root_job.state in {"completed", "needs_review"}
+                and not publication_current
+                else None
+            )
+            for job_id in job_ids:
+                if job_id not in jobs:
+                    continue
+                try:
+                    job = jobs[job_id]
+                    repair_publication = job.job_id == repair_owner_id
+                    if job.state in {"spooled", "analyzing"} or job.payload.get("export_pending"):
                         candidate = replace(job, state="pending")
+                    elif repair_publication:
+                        candidate = replace(
+                            job, state="pending",
+                            payload=dict(job.payload, export_pending=True),
+                        )
                     elif self._is_legacy_confirmation(job):
                         self._analysis_from_payload(job.payload["analysis"])
                         candidate = replace(job, payload=dict(
@@ -274,6 +302,7 @@ class WorkflowController:
                         job = candidate
                     else:
                         job = self._require_job(job_id)
+                    jobs[job_id] = job
                     if not job.payload.get("parent_job_id"):
                         latest_root_job = job
                     # A transient discovery-side mirror failure may already be repaired.
@@ -304,6 +333,34 @@ class WorkflowController:
             ordered = [outcomes[job_id] for job_id in job_ids if job_id in outcomes]
             ordered.extend(outcome for job_id, outcome in outcomes.items() if job_id not in job_ids)
             return ordered
+
+    def _restore_stale_publication_marker(self, job: WorkflowJob) -> WorkflowJob:
+        """Repair the older restart bug that marked every terminal job pending.
+
+        A real retry retains either an error, an export outbox, split ownership,
+        or unapplied facts.  The narrow state below can only be the legacy global
+        publication marker; reconstruct its terminal state from authoritative
+        review facts before choosing one current repair owner.
+        """
+        if not (
+            job.state == "pending" and job.knowledge_applied
+            and job.last_error is None and not job.payload.get("export_pending")
+            and not job.payload.get("parent_job_id")
+            and not job.payload.get("child_document_ids")
+            and job.payload.get("analysis") is not None
+        ):
+            return job
+        document_ids = (job.job_id,)
+        if self.config.review_all_model_questions:
+            has_pending_review = bool(self.repo.pending_review_ids(document_ids))
+        else:
+            document = self.repo.get_document(job.job_id)
+            has_pending_review = bool(document and any(
+                question["status"] == "needs_review" for question in document["questions"]
+            ))
+        terminal = "needs_review" if has_pending_review else "completed"
+        analyzing = self._save_if_current(job, replace(job, state="analyzing"))
+        return self._save_if_current(analyzing, replace(analyzing, state=terminal))
 
     @staticmethod
     def _recovery_error(job_id: str, path: Path) -> WorkflowOutcome:

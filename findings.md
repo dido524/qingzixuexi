@@ -63,6 +63,13 @@
 - Existing analyses cannot be regenerated silently. For them, compose “正确做法” from the stored reference answer plus reason; future analyses will require the model reason to include the rule, key steps, error correction, and uncertainty details in concise Chinese.
 - Visual QA at 1180×900 confirmed that the shared preview remains large, each card has clear tinted grouping and a full-width save action, and multiple cards remain distinguishable while scrolling. The fixed footer remains visible.
 
+## Main-Window Capture and Recovery List Findings (2026-09-29)
+- The main window uses one `Listbox` for both current-session rows (`第 N 页`) and `CaptureViewModel.recovered_tasks.keys()`.
+- Recovery-task keys are raw internal `capture-<uuid>` identifiers. Although `Repository.document_display_name()` already produces stable date/subject/sequence names, the UI recovery event does not carry or render that value.
+- Selecting a recovery row changes the target used by result/open/retry actions, so a visually opaque old row can unexpectedly replace the active capture context.
+- The live authoritative `workflow_jobs` table currently contains 24 recoverable-looking rows: 6 have questions still awaiting parent review, 2 are genuine historical DeepSeek failures, and 16 have learning facts already applied with no remaining review but are still surfaced because restart recovery converts publication-mismatch records to `pending`.
+- Correct user-facing behavior: current pages remain a dedicated list; historical rows are a separate section, use date/subject/daily-sequence plus page/question/status metadata, include only tasks that still require a user action, and keep raw capture IDs only as internal lookup keys.
+
 ## Model Switching Findings (2026-09-19)
 - The current runtime is already contract-oriented: Codex receives one fixed prompt plus images and must return the packaged strict analysis schema.
 - The official DeepSeek API now documents native image input for `deepseek-flash` over an OpenAI-compatible `https://api.deepseek.com` endpoint, including base64 image data URLs.

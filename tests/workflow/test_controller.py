@@ -858,6 +858,32 @@ def test_unfinished_capture_is_not_automatically_submitted(setup):
     assert controller_for(setup).recover_jobs() == []
 
 
+def test_restart_uses_only_newest_completed_job_to_repair_global_publication(setup):
+    config, repo, analyzer, first_session = setup
+    analyzer.status = QuestionStatus.CORRECT
+    controller = controller_for(setup)
+    first = controller.finish_and_analyze(first_session)
+    second_session = CaptureSession(config, "capture-second")
+    rng = np.random.default_rng(44)
+    second_session.capture(rng.integers(40, 220, (1200, 1600, 3), dtype=np.uint8))
+    second = controller.finish_and_analyze(second_session)
+    assert first.state == second.state == "completed"
+    dashboard = config.knowledge_root / "知识库首页.html"
+    dashboard.write_text("damaged", encoding="utf-8")
+    assert not controller.publication.current()
+    # Simulate a record polluted by the older restart behavior, which marked
+    # every terminal document as pending when one global publication was stale.
+    first_job = repo.get_job(first.job_id)
+    repo.save_workflow_job(replace(first_job, state="pending"))
+
+    recovered = controller_for(setup).recover_jobs()
+
+    assert [item.job_id for item in recovered] == [second.job_id]
+    assert recovered[0].state == "pending"
+    assert repo.get_job(first.job_id).state == "completed"
+    assert repo.get_job(second.job_id).payload["export_pending"]
+
+
 def test_source_hash_mismatch_never_reaches_analyzer_or_archive(setup):
     controller = controller_for(setup)
     config, repo, analyzer, session = setup

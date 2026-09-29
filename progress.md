@@ -159,3 +159,22 @@
 - Confirmed the desktop app was closed, then backed up the live database and model settings to `C:\Users\Home\Documents\QingziLearningAssistant\backups\20260925-100759-per-question-review-cards`; source and backup both report `PRAGMA integrity_check = ok` and identical counts across every user table.
 - Rebuilt the PyInstaller package and installed it to `C:\Users\Home\AppData\Local\QingziLearningAssistant\app\晴子学习助手.exe`.
 - Installed EXE and build EXE SHA-256 both equal `BAEC5F43A67C05662FF81E1651226ECE67D8CB92C83803F07716AE28A2D5230B`; desktop shortcut target matches, installed `--smoke-check` exited `0`, and the live database still has 23 documents, 39 pages, and 248 questions with integrity `ok`.
+
+## Session: 2026-09-29 — Restore Meaningful Capture and Recovery Tasks
+- User asked to replace the confusing mixed `已拍页面与待处理任务` list with a parent-facing view that reflects real pending work.
+- Read-only code and database inspection confirmed raw internal IDs are used as visible list keys and that 16 already-processed records are being surfaced alongside 6 reviewable tasks and 2 genuine failures.
+- Approved bounded design from the preceding explanation: separate current pages from historical actions, hide internal IDs, show friendly date/subject/sequence/status labels, and filter completed records.
+- Next: write failing behavior tests before production changes.
+- Focused pre-change baseline passed: `149 passed in 434.24s` for the main-window view model and workflow controller suites.
+- Added three regression tests. RED confirmed all three fail for the intended old behavior: missing presentation metadata/separate history list and both completed jobs being surfaced for one global publication repair.
+- Implemented separate current-page and actionable-history lists, friendly date/subject/sequence labels, hidden internal task keys, and one-owner global publication recovery.
+- Main-window/workflow regression passed `152 passed in 338.56s`; adjacent review/publication regression passed `165 passed in 1453.38s`.
+- A DPI-aware 1200×780 render exposed a collapsed historical list. Added a failing compact-window regression, enforced a visible minimum height, shortened task labels, and moved page-count detail into the selected-task summary; visual recheck shows both task rows and the footer controls.
+- Added a local-only `-IconPhoto` build path and verified a multi-resolution ICO generated from the requested photograph. The photo stays outside Git and is only embedded in the local executable.
+- Packaging asset regression passed `14 passed in 3.31s`; focused new task-list layout/selection cases passed `3 passed`.
+- First full regression exposed one stale end-to-end test that still selected a recovery job from the old mixed page list. Updated it to use the new hidden-key task list; the focused crash-recovery case passed.
+- Final exact-tree regression passed `778 passed, 1 skipped in 1861.43s`; source compilation and `git diff --check` also passed.
+- With the application closed, created and verified `C:\Users\Home\Documents\QingziLearningAssistant\backups\20260929-230646-friendly-task-list-photo-icon`: SQLite integrity `ok`, with matching counts for all user tables including 24 documents, 41 pages, and 265 questions. Also preserved model settings, the DPAPI key file, the former shortcut icon, and an exact filesystem database copy.
+- Built and installed the photo-icon package to `C:\Users\Home\AppData\Local\QingziLearningAssistant\app\晴子学习助手.exe`. Dist and installed EXE SHA-256 are both `F7A67283CC75B60AB3746615DAA03B661F9AC482A4DAEA53AF0BF47B33F4BC59`; installed smoke check exited `0`.
+- Desktop shortcut targets the installed EXE and uses `C:\Users\Home\AppData\Local\QingziLearningAssistant\user-assets\qingzi-photo.ico`. Generated and installed icon SHA-256 both equal `6A2A8CE0A3BFF4D73506623AF3EB79B334BBFD5ED77A82CE530CE277B400C900`; the child photo and private icon remain outside Git.
+- Post-install filesystem check found no database WAL/SHM sidecars, no running app processes, and an unchanged database timestamp; live DB and exact backup SHA-256 both equal `040997B5D5642A4642BD1C3B59618E709A682067B83BE893E60B7AF0B6E6440C`.
