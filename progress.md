@@ -178,3 +178,4 @@
 - Built and installed the photo-icon package to `C:\Users\Home\AppData\Local\QingziLearningAssistant\app\晴子学习助手.exe`. Dist and installed EXE SHA-256 are both `F7A67283CC75B60AB3746615DAA03B661F9AC482A4DAEA53AF0BF47B33F4BC59`; installed smoke check exited `0`.
 - Desktop shortcut targets the installed EXE and uses `C:\Users\Home\AppData\Local\QingziLearningAssistant\user-assets\qingzi-photo.ico`. Generated and installed icon SHA-256 both equal `6A2A8CE0A3BFF4D73506623AF3EB79B334BBFD5ED77A82CE530CE277B400C900`; the child photo and private icon remain outside Git.
 - Post-install filesystem check found no database WAL/SHM sidecars, no running app processes, and an unchanged database timestamp; live DB and exact backup SHA-256 both equal `040997B5D5642A4642BD1C3B59618E709A682067B83BE893E60B7AF0B6E6440C`.
+- Pushed verified implementation commit `61b70ec85c4cb097140a451d69f76af0894b1507` to GitHub `main` and confirmed the remote ref matched.

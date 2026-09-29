@@ -91,8 +91,8 @@ Phase 14: Parent-Friendly Capture and Recovery Task List
 - [x] Preserve quick confirmation for model-correct questions and one-question-at-a-time saving
 - [x] Require future model reasons to explain the correct method and key steps
 - [x] Run focused/full verification, back up the live database, and build/install
-- [ ] Commit the verified changes and push GitHub main
-- **Status:** in_progress
+- [x] Commit the verified changes and push GitHub main
+- **Status:** complete
 
 ### Phase 14: Parent-Friendly Capture and Recovery Task List
 - [x] Trace the mixed current-page/recovery list and inspect live task classifications
