@@ -353,6 +353,76 @@ def test_installer_rolls_back_old_app_shortcut_and_leaves_spool_on_injected_fail
     assert not list(install_root.glob(".app-backup-*"))
 
 
+def test_installer_uses_content_addressed_copy_for_requested_photo_icon(tmp_path) -> None:
+    """A new icon path must bypass Explorer's stale same-path icon cache."""
+    root = _root()
+    shell = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+    assert shell
+    package = tmp_path / "package"
+    internal = package / "_internal" / "qingzi_learning"
+    (internal / "schema").mkdir(parents=True)
+    (internal / "storage").mkdir(parents=True)
+    for name in ("analysis-result.schema.json", "analysis-transport.schema.json"):
+        (internal / "schema" / name).write_text("{}", encoding="utf-8")
+    (internal / "storage" / "schema.sql").write_text(
+        "CREATE TABLE smoke(id INTEGER);", encoding="utf-8"
+    )
+    for name in ("PIL", "cv2", "tkinter", "multiprocessing"):
+        (package / "_internal" / name).mkdir()
+    graph_dir = internal / "curriculum" / "graphs"
+    mapping_dir = internal / "curriculum" / "mappings"
+    graph_dir.mkdir(parents=True)
+    mapping_dir.mkdir(parents=True)
+    (graph_dir / "primary_math_v1.json").write_text("{}", encoding="utf-8")
+    (mapping_dir / "bnu_math_g5_upper_2024.json").write_text("{}", encoding="utf-8")
+    shutil.copy2(Path(os.environ["WINDIR"]) / "System32" / "notepad.exe", package / "晴子学习助手.exe")
+
+    requested_icon = tmp_path / "child-photo.ico"
+    Image.new("RGB", (256, 256), "#3A88CC").save(requested_icon, format="ICO")
+    install_root = tmp_path / "QingziLearningAssistant"
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    completed = subprocess.run(
+        [
+            shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            str(root / "scripts" / "install_desktop_shortcut.ps1"),
+            "-SourceDirectory", str(package),
+            "-InstallRoot", str(install_root),
+            "-DesktopDirectory", str(desktop),
+            "-ShortcutIconPath", str(requested_icon),
+            "-SkipSmokeCheck",
+        ],
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    installed_icons = list((install_root / "user-assets").glob("qingzi-photo-*.ico"))
+    assert len(installed_icons) == 1
+    assert installed_icons[0].read_bytes() == requested_icon.read_bytes()
+    shortcut = desktop / "晴子学习助手.lnk"
+    inspect = subprocess.run(
+        [
+            shell, "-NoProfile", "-NonInteractive", "-Command",
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:QINGZI_SHORTCUT);"
+            "[Console]::Write($s.IconLocation)",
+        ],
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "QINGZI_SHORTCUT": str(shortcut)},
+        timeout=30,
+        check=False,
+    )
+    assert inspect.returncode == 0, inspect.stderr
+    assert str(installed_icons[0]) in inspect.stdout
+
+
 def test_pending_cli_failure_tells_family_how_to_restore_authenticated_analysis() -> None:
     """A no-key build must explain the local Codex dependency in the UI."""
     from qingzi_learning.ui.app import CaptureViewModel

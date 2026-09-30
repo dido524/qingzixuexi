@@ -4,6 +4,7 @@ param(
     [string]$SourceDirectory,
     [string]$InstallRoot,
     [string]$DesktopDirectory,
+    [string]$ShortcutIconPath,
     # Only exercised by automated rollback tests; regular installation always smokes the EXE.
     [switch]$SkipSmokeCheck,
     [ValidateSet('none', 'after_backup', 'after_install', 'after_shortcut')]
@@ -15,6 +16,18 @@ Set-StrictMode -Version Latest
 
 function Get-AbsolutePath([string]$Path) {
     return [IO.Path]::GetFullPath($Path)
+}
+
+function Get-Sha256Hex([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+        $stream.Dispose()
+    }
 }
 
 function Test-ReparsePoint([string]$Path) {
@@ -89,12 +102,12 @@ function Invoke-PackageSmoke([string]$Executable) {
     if ($process.ExitCode -ne 0) { throw "程序安全检查失败，退出码：$($process.ExitCode)" }
 }
 
-function Set-DesktopShortcut([string]$ShortcutPath, [string]$Executable, [string]$WorkingDirectory) {
+function Set-DesktopShortcut([string]$ShortcutPath, [string]$Executable, [string]$WorkingDirectory, [string]$IconPath) {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($ShortcutPath)
     $shortcut.TargetPath = Get-AbsolutePath $Executable
     $shortcut.WorkingDirectory = Get-AbsolutePath $WorkingDirectory
-    $shortcut.IconLocation = "$(Get-AbsolutePath $Executable),0"
+    $shortcut.IconLocation = "$(Get-AbsolutePath $IconPath),0"
     $shortcut.Description = '连续拍摄作业并更新晴子知识库'
     $shortcut.Save()
     if (-not (Test-Path -LiteralPath $ShortcutPath -PathType Leaf)) {
@@ -129,6 +142,20 @@ if (Test-ReparsePoint $DesktopDirectory) { throw "桌面目录不能是重解析
 $installDirectory = Assert-SafeChildPath (Join-Path $applicationRoot 'app') $applicationRoot '安装目录'
 $desktop = Get-AbsolutePath $DesktopDirectory
 $shortcutPath = Assert-SafeChildPath (Join-Path $desktop '晴子学习助手.lnk') $desktop '桌面快捷方式'
+$requestedIcon = $null
+$installedIcon = $null
+if (-not [string]::IsNullOrWhiteSpace($ShortcutIconPath)) {
+    $requestedIcon = (Resolve-Path -LiteralPath $ShortcutIconPath -ErrorAction Stop).Path
+    if (([IO.Path]::GetExtension($requestedIcon)) -ne '.ico') {
+        throw "快捷方式图标必须是 ICO 文件：$requestedIcon"
+    }
+    if (Test-ReparsePoint $requestedIcon) { throw "快捷方式图标不能是重解析点。" }
+    if ((Get-Item -LiteralPath $requestedIcon).Length -le 0) { throw "快捷方式图标为空。" }
+    $iconHash = Get-Sha256Hex $requestedIcon
+    $iconDirectory = Join-Path $applicationRoot 'user-assets'
+    New-Item -ItemType Directory -Path $iconDirectory -Force | Out-Null
+    $installedIcon = Assert-SafeChildPath (Join-Path $iconDirectory ("qingzi-photo-$($iconHash.Substring(0,12)).ico")) $applicationRoot '安装图标'
+}
 
 if ($Uninstall) {
     Remove-ScopedShortcut $shortcutPath $desktop
@@ -165,8 +192,16 @@ try {
     Test-DeliveryPackage $installDirectory | Out-Null
     if (-not $SkipSmokeCheck) { Invoke-PackageSmoke (Join-Path $installDirectory '晴子学习助手.exe') }
     Throw-InjectedFailure 'after_install'
+    $shortcutIcon = Join-Path $installDirectory '晴子学习助手.exe'
+    if ($null -ne $requestedIcon) {
+        Copy-Item -LiteralPath $requestedIcon -Destination $installedIcon -Force
+        if ((Get-Sha256Hex $installedIcon) -ne (Get-Sha256Hex $requestedIcon)) {
+            throw "安装后的快捷方式图标校验失败。"
+        }
+        $shortcutIcon = $installedIcon
+    }
     $shortcutAttempted = $true
-    Set-DesktopShortcut $shortcutPath (Join-Path $installDirectory '晴子学习助手.exe') $installDirectory
+    Set-DesktopShortcut $shortcutPath (Join-Path $installDirectory '晴子学习助手.exe') $installDirectory $shortcutIcon
     Throw-InjectedFailure 'after_shortcut'
     $success = $true
 }
@@ -192,6 +227,13 @@ finally {
     if ($success) {
         if (Test-Path -LiteralPath $backup -PathType Container) { Remove-ScopedDirectory $backup $applicationRoot }
         if (Test-Path -LiteralPath $shortcutBackup -PathType Leaf) { Remove-Item -LiteralPath $shortcutBackup -Force }
+    }
+}
+
+if ($desktop -eq (Get-AbsolutePath ([Environment]::GetFolderPath('Desktop')))) {
+    $iconRefresh = Join-Path $env:WINDIR 'System32\ie4uinit.exe'
+    if (Test-Path -LiteralPath $iconRefresh -PathType Leaf) {
+        & $iconRefresh -show
     }
 }
 
