@@ -103,13 +103,39 @@ function Invoke-PackageSmoke([string]$Executable) {
 }
 
 function Set-DesktopShortcut([string]$ShortcutPath, [string]$Executable, [string]$WorkingDirectory, [string]$IconPath) {
+    $temporaryShortcut = Join-Path ([IO.Path]::GetTempPath()) ('.qingzi-shortcut-' + [Guid]::NewGuid().ToString('N') + '.lnk')
     $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($ShortcutPath)
-    $shortcut.TargetPath = Get-AbsolutePath $Executable
-    $shortcut.WorkingDirectory = Get-AbsolutePath $WorkingDirectory
-    $shortcut.IconLocation = "$(Get-AbsolutePath $IconPath),0"
-    $shortcut.Description = '连续拍摄作业并更新晴子知识库'
-    $shortcut.Save()
+    $shortcut = $null
+    try {
+        $shortcut = $shell.CreateShortcut($temporaryShortcut)
+        $shortcut.TargetPath = Get-AbsolutePath $Executable
+        $shortcut.WorkingDirectory = Get-AbsolutePath $WorkingDirectory
+        $shortcut.IconLocation = "$(Get-AbsolutePath $IconPath),0"
+        $shortcut.Description = '连续拍摄作业并更新晴子知识库'
+        $shortcut.Save()
+        if (-not (Test-Path -LiteralPath $temporaryShortcut -PathType Leaf)) {
+            throw "无法创建临时桌面快捷方式：$temporaryShortcut"
+        }
+        [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut) | Out-Null
+        $shortcut = $null
+        [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) | Out-Null
+        $shell = $null
+        if (Test-Path -LiteralPath $ShortcutPath -PathType Leaf) {
+            Remove-Item -LiteralPath $ShortcutPath -Force
+        }
+        Move-Item -LiteralPath $temporaryShortcut -Destination $ShortcutPath
+    }
+    finally {
+        if ($null -ne $shortcut) {
+            [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut) | Out-Null
+        }
+        if ($null -ne $shell) {
+            [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) | Out-Null
+        }
+        if (Test-Path -LiteralPath $temporaryShortcut -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryShortcut -Force
+        }
+    }
     if (-not (Test-Path -LiteralPath $ShortcutPath -PathType Leaf)) {
         throw "无法创建桌面快捷方式：$ShortcutPath"
     }

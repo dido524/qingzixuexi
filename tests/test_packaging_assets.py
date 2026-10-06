@@ -423,6 +423,91 @@ def test_installer_uses_content_addressed_copy_for_requested_photo_icon(tmp_path
     assert str(installed_icons[0]) in inspect.stdout
 
 
+def test_installer_recreates_existing_shortcut_to_invalidate_explorer_cache(tmp_path) -> None:
+    """Replacing the .lnk file gives Explorer a fresh desktop item identity."""
+    root = _root()
+    shell = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+    assert shell
+    package = tmp_path / "package"
+    internal = package / "_internal" / "qingzi_learning"
+    (internal / "schema").mkdir(parents=True)
+    (internal / "storage").mkdir(parents=True)
+    for name in ("analysis-result.schema.json", "analysis-transport.schema.json"):
+        (internal / "schema" / name).write_text("{}", encoding="utf-8")
+    (internal / "storage" / "schema.sql").write_text(
+        "CREATE TABLE smoke(id INTEGER);", encoding="utf-8"
+    )
+    for name in ("PIL", "cv2", "tkinter", "multiprocessing"):
+        (package / "_internal" / name).mkdir()
+    graph_dir = internal / "curriculum" / "graphs"
+    mapping_dir = internal / "curriculum" / "mappings"
+    graph_dir.mkdir(parents=True)
+    mapping_dir.mkdir(parents=True)
+    (graph_dir / "primary_math_v1.json").write_text("{}", encoding="utf-8")
+    (mapping_dir / "bnu_math_g5_upper_2024.json").write_text("{}", encoding="utf-8")
+    system_exe = Path(os.environ["WINDIR"]) / "System32" / "notepad.exe"
+    shutil.copy2(system_exe, package / "晴子学习助手.exe")
+
+    requested_icon = tmp_path / "new-photo.ico"
+    Image.new("RGB", (256, 256), "#FFCC33").save(requested_icon, format="ICO")
+    install_root = tmp_path / "QingziLearningAssistant"
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    shortcut = desktop / "晴子学习助手.lnk"
+    create_old = subprocess.run(
+        [
+            shell, "-NoProfile", "-NonInteractive", "-Command",
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:QINGZI_SHORTCUT);"
+            "$s.TargetPath=$env:QINGZI_TARGET;$s.IconLocation=\"$env:QINGZI_TARGET,0\";$s.Save()",
+        ],
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env={
+            **os.environ,
+            "QINGZI_SHORTCUT": str(shortcut),
+            "QINGZI_TARGET": str(system_exe),
+        },
+        timeout=30,
+        check=False,
+    )
+    assert create_old.returncode == 0, create_old.stderr
+    old_identity = shortcut.stat().st_ino
+
+    completed = subprocess.run(
+        [
+            shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            str(root / "scripts" / "install_desktop_shortcut.ps1"),
+            "-SourceDirectory", str(package),
+            "-InstallRoot", str(install_root),
+            "-DesktopDirectory", str(desktop),
+            "-ShortcutIconPath", str(requested_icon),
+            "-SkipSmokeCheck",
+        ],
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    assert shortcut.stat().st_ino != old_identity
+
+
+def test_shortcut_staging_stays_off_explorer_watched_desktop() -> None:
+    """Explorer may lock a newly created temporary .lnk when it appears on Desktop."""
+    installer = _script(_root() / "scripts" / "install_desktop_shortcut.ps1")
+    start = installer.index("function Set-DesktopShortcut")
+    end = installer.index("function Throw-InjectedFailure")
+    function_body = installer[start:end]
+
+    assert "[IO.Path]::GetTempPath()" in function_body
+    assert "Join-Path $shortcutDirectory" not in function_body
+
+
 def test_pending_cli_failure_tells_family_how_to_restore_authenticated_analysis() -> None:
     """A no-key build must explain the local Codex dependency in the UI."""
     from qingzi_learning.ui.app import CaptureViewModel
