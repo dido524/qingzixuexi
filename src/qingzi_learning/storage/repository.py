@@ -235,6 +235,11 @@ class KnowledgeRepository:
                       effective_questions.question_id, effective_questions.status,
                       effective_questions.prompt_summary,
                       effective_questions.error_categories_json,
+                      CASE
+                        WHEN effective_questions.review_revision > 0
+                         AND effective_questions.status != effective_questions.original_status
+                        THEN 0 ELSE 1
+                      END AS content_reliable,
                       links.knowledge_point
                FROM effective_questions
                JOIN documents ON documents.document_id=effective_questions.document_id

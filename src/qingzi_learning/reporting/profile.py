@@ -57,6 +57,7 @@ class LearningProfileBuilder:
                 "created_at": row["created_at"],
                 "prompt_summary": row["prompt_summary"],
                 "error_categories": tuple(row["error_categories"]),
+                "content_reliable": bool(row["content_reliable"]),
                 "knowledge_points": [],
             })
             point = row["knowledge_point"]
@@ -134,7 +135,9 @@ class LearningProfileBuilder:
                             "prompt_summary": item["prompt_summary"],
                             "status": item["status"],
                         }
-                        for item in attempts[-3:]
+                        for item in [
+                            candidate for candidate in attempts if candidate["content_reliable"]
+                        ][-3:]
                     ],
                     "delta": delta,
                     "change": change,
@@ -160,6 +163,9 @@ class LearningProfileBuilder:
                 "document_count": len(document_ids),
                 "pending_count": evidence["pending_count"],
                 "excluded_low_confidence_count": evidence["excluded_low_confidence_count"],
+                "excluded_conflicted_text_count": sum(
+                    not question["content_reliable"] for question in questions.values()
+                ),
             },
             "subjects": subjects,
             "retests": self._retests(retest_rows, previous_snapshot, subjects),

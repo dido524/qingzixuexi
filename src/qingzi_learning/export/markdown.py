@@ -81,6 +81,8 @@ class MarkdownExporter:
             document["subject"], document["document_id"], display_name=document["display_name"]
         )
         page_paths = {page["page_number"]: Path(page["path"]) for page in document["pages"]}
+        questions = document["questions"]
+        has_parent_review = any(question.get("review_revision") for question in questions)
         lines = [
             "---",
             f"document_id: {self._yaml_value(document['document_id'])}",
@@ -91,19 +93,34 @@ class MarkdownExporter:
             "",
             f"# {self._plain(document['display_name'])} 分析记录",
             "",
-            "## 总结",
-            "",
-            self._block_plain(document.get("summary") or "尚无总结。"),
-            "",
-            "## 老师批改依据",
-            "",
         ]
+        if has_parent_review:
+            counts = {
+                status: sum(question["status"] == status for question in questions)
+                for status in ("correct", "incorrect", "partial", "needs_review")
+            }
+            lines.extend([
+                "## 家长确认后的结果", "",
+                (
+                    f"- 共 {len(questions)} 题；正确 {counts['correct']}；错误 {counts['incorrect']}；"
+                    f"部分正确 {counts['partial']}；待确认 {counts['needs_review']}"
+                ),
+                "",
+                "## AI原始总结（家长确认前，仅供追溯）", "",
+                self._block_plain(document.get("summary") or "尚无总结。"), "",
+            ])
+        else:
+            lines.extend([
+                "## 总结", "",
+                self._block_plain(document.get("summary") or "尚无总结。"), "",
+            ])
+        lines.extend(["## 老师批改依据", ""])
         evidence = document.get("teacher_mark_evidence", [])
         lines.extend([f"- {self._plain(item)}" for item in evidence] or ["- 尚未识别到老师批改依据。"])
         lines.extend(["", "## 题目分析", ""])
-        if not document["questions"]:
+        if not questions:
             lines.append("尚无题目分析。")
-        for question in document["questions"]:
+        for question in questions:
             page = question["page"]
             point_links = [
                 self._markdown_link(point, self.knowledge_point_path(document["subject"], point), destination)
@@ -129,6 +146,14 @@ class MarkdownExporter:
                 ]
             )
             if question.get("review_revision"):
+                if (
+                    question.get("original_decision_source") == "model"
+                    and question["status"] != question["original_status"]
+                ):
+                    lines.extend([
+                        "- 内容可信度: 家长最终判断已生效；AI题干、参考答案和讲解仅供追溯，不用于报告或模拟卷。",
+                        "",
+                    ])
                 lines.extend([
                     "#### 家长复核记录", "",
                     f"- 最终判断: {self._plain(question['status'])}（家长确认）",

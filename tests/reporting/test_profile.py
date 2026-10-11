@@ -120,6 +120,31 @@ def test_profile_keeps_all_subjects_and_marks_new_points(repo: KnowledgeReposito
     assert profile["subjects"]["数学"]["knowledge_points"]["分数应用"]["change"] == "new"
 
 
+def test_parent_override_counts_for_mastery_but_excludes_conflicting_ai_text(
+    repo: KnowledgeRepository,
+) -> None:
+    """A parent verdict is authoritative without making contradicted OCR safe to reuse."""
+    from qingzi_learning.reporting.profile import LearningProfileBuilder
+
+    _save_question(repo, "overridden", "2026-09-18 10:00:00", QuestionStatus.INCORRECT, 0.98)
+    version = repo.review_question("overridden", "1")["version"]
+    KnowledgeUpdater(repo).confirm_review(
+        "overridden", "1", "correct", "", "", expected_version=version
+    )
+
+    profile = LearningProfileBuilder(repo).build(
+        None, cutoff_at=datetime(2026, 9, 18, 23, 0, tzinfo=UTC)
+    )
+
+    math = profile["subjects"]["数学"]
+    point = math["knowledge_points"]["分数应用"]
+    assert math["correct_count"] == 1
+    assert math["incorrect_count"] == 0
+    assert point["correct_count"] == 1
+    assert point["representative_questions"] == []
+    assert profile["summary"]["excluded_conflicted_text_count"] == 1
+
+
 def _save_question(
     repo: KnowledgeRepository,
     document_id: str,

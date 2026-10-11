@@ -103,6 +103,54 @@ def test_analysis_markdown_links_question_to_original_page(
     assert exporter.knowledge_point_path("数学", "分数除法").exists()
 
 
+def test_parent_override_replaces_summary_and_quarantines_conflicting_ai_text(
+    repo: KnowledgeRepository, exporter: MarkdownExporter
+) -> None:
+    analysis = AnalysisResult(
+        document_id="parent-authority",
+        subject=Subject.MATH,
+        subject_confidence=0.99,
+        document_type="作业",
+        grading_mode=GradingMode.AUTO_GRADE,
+        teacher_mark_evidence=(),
+        questions=(
+            QuestionAnalysis(
+                question_id="1",
+                question_type=QuestionType.CALCULATION,
+                page=1,
+                prompt_summary="AI误识别题干",
+                student_answer="0.1",
+                reference_answer="AI错误参考答案",
+                status=QuestionStatus.INCORRECT,
+                decision_source="model",
+                knowledge_points=("小数除法",),
+                error_categories=("计算错误",),
+                confidence=0.98,
+                reason="AI错误讲解",
+            ),
+        ),
+        summary="AI原始总结：本题错误。",
+    )
+    page = repo.config.knowledge_root / "数学" / "原始资料" / "parent-authority.jpg"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_bytes(b"image")
+    repo.create_document("parent-authority", "数学", "作业", ((1, str(page), "e" * 64),))
+    updater = KnowledgeUpdater(repo)
+    updater.apply(analysis)
+    version = repo.review_question("parent-authority", "1")["version"]
+    updater.confirm_review(
+        "parent-authority", "1", "correct", "", "", expected_version=version
+    )
+
+    text = exporter.export_document("parent-authority").read_text("utf-8")
+
+    assert "## 家长确认后的结果" in text
+    assert "正确 1；错误 0；部分正确 0；待确认 0" in text
+    assert "## AI原始总结（家长确认前，仅供追溯）" in text
+    assert "AI原始总结：本题错误。" in text
+    assert "AI题干、参考答案和讲解仅供追溯，不用于报告或模拟卷" in text
+
+
 def test_subject_export_is_deterministic_and_surfaces_traceable_weakness(
     exporter: MarkdownExporter, stored_analysis: AnalysisResult
 ) -> None:
