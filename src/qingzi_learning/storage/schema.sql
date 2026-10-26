@@ -220,6 +220,12 @@ FROM questions q LEFT JOIN parent_reviews r
 ON r.document_id = q.document_id AND r.question_id = q.question_id;
 
 -- Subject-neutral orchestration journal; subject documents are created only after choice.
+-- Removing a recovery reminder never erases originals or learning facts.
+CREATE TABLE IF NOT EXISTS dismissed_tasks (
+    task_id TEXT PRIMARY KEY,
+    dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS workflow_jobs (
     job_id TEXT PRIMARY KEY,
     state TEXT NOT NULL CHECK(state IN ('capturing', 'spooled', 'analyzing',

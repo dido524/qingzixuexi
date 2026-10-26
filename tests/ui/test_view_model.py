@@ -591,7 +591,7 @@ class _FakeCamera:
 
 class _FakeController:
     def __init__(self):
-        self.repo = type("Repo", (), {"close": lambda self: None})()
+        self.repo = type("Repo", (), {"close": lambda self: None, "is_task_dismissed": lambda self, identity: False})()
         self.finished_on = None
 
     def recover_jobs(self):
@@ -1287,6 +1287,60 @@ def _select_recovery(app, key):
     app.tasks.selection_clear(0, "end")
     app.tasks.selection_set(index)
     app._select_task(None)
+
+
+def test_delete_history_task_requires_confirmation_and_removes_only_selected_row(withdrawn_app, monkeypatch):
+    app, _ = withdrawn_app
+    for identity in ("old-a", "old-b"):
+        app.vm.apply_event(UiEvent("recovered_job",
+            outcome=WorkflowOutcome(identity, "pending", "数学", error_code="invalid_response")))
+    app._refresh()
+    _select_recovery(app, "old-a")
+    assert "重试" in app.task_help_var.get() and "删除" in app.task_help_var.get()
+    import tkinter.messagebox
+    monkeypatch.setattr(tkinter.messagebox, "askyesno", lambda *a, **kw: False)
+    app.delete_selected_task()
+    assert "old-a" in app.vm.recovered_tasks
+    assert not app.vm.busy
+    submitted = []
+    monkeypatch.setattr(app.worker, "submit", lambda kind, **kw: submitted.append((kind, kw)) or "delete-op")
+    monkeypatch.setattr(tkinter.messagebox, "askyesno", lambda *a, **kw: True)
+    app.buttons["delete_task"].invoke()
+    assert submitted[0][0] == "dismiss_task"
+    assert submitted[0][1]["job_id"] == "old-a"
+    app.vm.apply_event(UiEvent("task_dismissed", "delete-op", target_id="old-a", message="已删除任务"))
+    app._refresh()
+    assert app._task_keys == ["old-b"]
+    assert not app.vm.busy
+    assert str(app.buttons["delete_task"].cget("state")) == "disabled"
+
+
+def test_deleted_task_ignores_late_recovery_events(view_model):
+    view_model.recovered_tasks["old"] = UiEvent("recovered_capture", page_path=Path("old"))
+    view_model.begin_work("删除", "delete-op")
+    view_model.apply_event(UiEvent("task_dismissed", "delete-op", target_id="old"))
+    view_model.apply_event(UiEvent("recovered_job", outcome=WorkflowOutcome("old", "pending", "数学")))
+    assert "old" not in view_model.recovered_tasks
+
+
+def test_failed_history_actions_fit_supported_compact_window(withdrawn_app):
+    app, _ = withdrawn_app
+    app.root.geometry("1200x780")
+    app.vm.apply_event(UiEvent("recovered_job",
+        outcome=WorkflowOutcome("old-task", "pending", "数学", error_code="invalid_deepseek_response"),
+        completion=CompletionSummary(display_name="2026-10-26-数学-第01份", page_count=1,
+            saved_folder=Path("C:/Users/Home/AppData/Local/QingziLearningAssistant/spool/old-task"),
+            recovery_action="retry_analysis")))
+    app._refresh()
+    _select_recovery(app, "old-task")
+    app.root.deiconify()
+    app.root.update()
+    assert app.tasks.winfo_height() >= 60
+    assert app.task_actions.winfo_rooty() + app.task_actions.winfo_height() <= app.footer.winfo_rooty()
+    for button in (app.task_process_button, app.task_folder_button, app.delete_task_button):
+        assert button.winfo_width() >= 60
+        assert button.winfo_rootx() + button.winfo_width() <= app.root.winfo_rootx() + app.root.winfo_width()
+    app.root.withdraw()
 
 
 def test_current_pages_and_actionable_history_are_separate_and_capture_ids_hidden(withdrawn_app):

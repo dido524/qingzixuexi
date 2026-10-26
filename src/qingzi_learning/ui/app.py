@@ -98,7 +98,7 @@ class UiEvent:
 
 @dataclass(frozen=True)
 class _Command:
-    kind: Literal["capture", "retake", "retake_page", "next", "finish", "new_capture", "confirm_subject", "confirm_page_subject", "retry", "recover", "resume_capture", "list_reviews", "confirm_review", "confirm_correct_batch", "open_dashboard", "list_reports", "generate_report", "list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam", "stop"]
+    kind: Literal["capture", "retake", "retake_page", "next", "finish", "new_capture", "confirm_subject", "confirm_page_subject", "retry", "recover", "dismiss_task", "resume_capture", "list_reviews", "confirm_review", "confirm_correct_batch", "open_dashboard", "list_reports", "generate_report", "list_exams", "preview_exam_blueprint", "generate_exam", "approve_exam", "stop"]
     operation_id: str
     job_id: str | None = None
     subject: str | None = None
@@ -219,6 +219,13 @@ class WorkflowWorker(threading.Thread):
                 outcome = self._controller.retry_pending(command.job_id)
                 self._emit(self._command_event(command, "workflow_outcome", outcome=outcome, completion=self._completion(outcome), context="recovered_job"))
             elif command.kind == "recover": self._recover()
+            elif command.kind == "dismiss_task":
+                identity = Path(command.job_id).name
+                if self._session is not None and self._session_id == identity and not self._session.finished:
+                    raise ValueError("当前拍摄会话不能作为历史任务删除")
+                self._controller.dismiss_task(identity)
+                self._emit(self._command_event(command, "task_dismissed",
+                    message="已删除历史任务；原始照片和已入库学习记录已保留。"))
             elif command.kind == "resume_capture": self._resume(command)
             elif command.kind == "open_dashboard":
                 page = self._controller.dashboard.export()
@@ -439,12 +446,16 @@ class WorkflowWorker(threading.Thread):
         root = self.config.spool_root
         if root.exists():
             for path in root.iterdir():
+                if self._controller.repo.is_task_dismissed(path.name):
+                    continue
                 try:
                     captured = CaptureSession.recover(path)
                     if not captured.finished: self._emit(UiEvent("recovered_capture", page_path=path))
                 except (OSError, ValueError): pass
 
     def _resume(self, command) -> None:
+        if self._controller.repo.is_task_dismissed(Path(command.job_id).name):
+            raise ValueError("该历史任务已删除")
         session = CaptureSession.recover(Path(command.job_id))
         if session.finished: raise ValueError("capture sealed")
         self._session = session
@@ -541,6 +552,7 @@ class CaptureViewModel:
         self.page_subject_index = self.page_subject_total = 0
         self._page_subject_operations = {}; self.recovered_page_subject_queue = []
         self.recovered_tasks = {}; self.recovery_error_path = None; self.completion = CompletionSummary()
+        self.dismissed_task_keys = set()
         self.review_dialog_id = None; self.review_items = (); self.review_message = ""
         self.review_revisions = {}
         self.learning_center_dialog_id = None; self.report_runs = (); self.report_artifacts = None; self.report_message = ""
@@ -626,6 +638,21 @@ class CaptureViewModel:
             self.status=("分析完成，请逐题确认本次题目；确认后更新知识库。"
                          if completion and completion.review_count else "分析完成，已更新知识库。")
     def apply_event(self,event, *, force=False):
+        if event.kind == "task_dismissed":
+            if event.target_id:
+                self.dismissed_task_keys.add(event.target_id)
+                self.recovered_tasks.pop(event.target_id, None)
+                self.recovered_page_subject_queue = [
+                    key for key in self.recovered_page_subject_queue if key != event.target_id
+                ]
+            if event.operation_id == self.active_operation_id:
+                self.finish_work(event.operation_id)
+                self.status = event.message
+            return True
+        recovery_key = (event.target_id or (event.outcome.job_id if event.outcome else str(event.page_path)))
+        if (event.kind in {"recovered_job", "recovered_capture", "workflow_outcome", "review_saved"}
+                and recovery_key in self.dismissed_task_keys):
+            return False
         # Operation ownership outlives a deferred window. Its durable completion
         # refreshes recovery and releases only its own busy operation; visible
         # dialog mutation still requires the current dialog identity.
@@ -843,12 +870,28 @@ class LearningAssistantApp:
         self.recovery_tasks_title.grid(row=4,column=0,sticky="w",padx=16)
         self.tasks=tk.Listbox(side,height=4,borderwidth=0,highlightthickness=1,highlightbackground=colors["line"],selectbackground=colors["pink"],selectforeground="white",activestyle="none",font=("Microsoft YaHei UI",9))
         self.tasks.bind("<<ListboxSelect>>",self._select_task); self.tasks.grid(row=5,column=0,sticky="nsew",padx=14,pady=(6,10))
+        self.task_actions=tk.Frame(side,bg=colors["card"])
+        self.task_actions.grid(row=6,column=0,sticky="ew",padx=14,pady=(0,5))
+        self.task_actions.grid_columnconfigure((0,1,2),weight=1)
+        self.task_process_button=tk.Button(self.task_actions,text="处理选中任务",command=self.retry_selected,
+            font=("Microsoft YaHei UI",9),padx=5,pady=5)
+        self.task_process_button.grid(row=0,column=0,sticky="ew",padx=(0,3))
+        self.task_folder_button=tk.Button(self.task_actions,text="查看资料",command=self.open_folder,
+            font=("Microsoft YaHei UI",9),padx=5,pady=5)
+        self.task_folder_button.grid(row=0,column=1,sticky="ew",padx=3)
+        self.delete_task_button=tk.Button(self.task_actions,text="删除任务",command=self.delete_selected_task,
+            font=("Microsoft YaHei UI",9),padx=5,pady=5)
+        self.delete_task_button.grid(row=0,column=2,sticky="ew",padx=(3,0))
+        self.task_help_var=tk.StringVar(master=self.root)
+        tk.Label(side,textvariable=self.task_help_var,justify="left",anchor="w",wraplength=260,
+            font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(
+                row=7,column=0,sticky="ew",padx=16,pady=(0,5))
         self._task_keys=[]
         self.detail_var=tk.StringVar(master=self.root,value="本次资料：尚未分析")
-        tk.Label(side,textvariable=self.detail_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",9),fg=colors["ink"],bg=colors["lavender"],padx=12,pady=9).grid(row=6,column=0,sticky="ew",padx=14,pady=(0,8))
+        tk.Label(side,textvariable=self.detail_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",9),fg=colors["ink"],bg=colors["lavender"],padx=12,pady=9).grid(row=8,column=0,sticky="ew",padx=14,pady=(0,8))
         self.saved_path_var=tk.StringVar(master=self.root); self.selected_path_var=tk.StringVar(master=self.root)
-        tk.Label(side,textvariable=self.saved_path_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(row=7,column=0,sticky="ew",padx=16)
-        tk.Label(side,textvariable=self.selected_path_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(row=8,column=0,sticky="ew",padx=16,pady=(2,12))
+        tk.Label(side,textvariable=self.saved_path_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(row=9,column=0,sticky="ew",padx=16)
+        tk.Label(side,textvariable=self.selected_path_var,justify="left",anchor="w",wraplength=260,font=("Microsoft YaHei UI",8),fg=colors["muted"],bg=colors["card"]).grid(row=10,column=0,sticky="ew",padx=16,pady=(2,12))
 
         self.footer=tk.Frame(self.root,bg=colors["card"],highlightbackground=colors["line"],highlightthickness=1)
         self.footer.grid(row=2,column=0,sticky="ew"); self.buttons={}
@@ -870,6 +913,9 @@ class LearningAssistantApp:
                                         font=("Microsoft YaHei UI",9,"bold"),padx=16,pady=7)
         self.buttons["more"].grid(row=0,column=1,sticky="ew",padx=4)
         self._build_more_window()
+        self.buttons["delete_task"]=self.delete_task_button
+        self.buttons["task_process"]=self.task_process_button
+        self.buttons["task_folder"]=self.task_folder_button
 
     def _build_more_window(self):
         colors=self.colors
@@ -1138,8 +1184,30 @@ class LearningAssistantApp:
                     else:
                         context="active_capture" if self.vm.matches_session(event) and self.vm.pending_job_id == outcome.job_id else "recovered_job"
                         self._subject_dialog(outcome.job_id,context,event.session_generation,event.session_id)
+                elif event.completion and event.completion.review_count and not outcome.error_code:
+                    self.open_reviews()
                 elif outcome.job_id: self._submit("retry","正在重试…",True,job_id=outcome.job_id,context="recovered_job",
                                                   session_generation=event.session_generation,session_id=event.session_id)
+    def delete_selected_task(self):
+        if (self._closing or self.vm.busy or self.vm.worker_failed or self._review_dialog is not None
+                or self.vm.page_subject_dialog_needed or self._page_subject_dialog is not None):
+            return
+        event=self._selected_recovery()
+        selected=self.tasks.curselection()
+        if event is None or not selected:
+            return
+        key=self._task_keys[selected[0]]
+        identity=event.outcome.job_id if event.outcome else event.page_path.name
+        if not identity or identity == self.vm.session_id:
+            return
+        from tkinter import messagebox
+        if not messagebox.askyesno("删除历史任务",
+                f"删除“{self._recovery_task_label(event)}”？\n\n"
+                "此任务将从待处理列表移除，重启后也不再提醒。\n"
+                "原始照片和已入库学习记录会保留；待确认题仍可从“历史待家长确认”查看。",
+                parent=self.root):
+            return
+        self._submit("dismiss_task","正在删除历史任务…",job_id=key,context="recovered_job")
     def _select(self,_):
         item=self.pages.curselection()
         if item:
@@ -1407,6 +1475,22 @@ class LearningAssistantApp:
                 index=task_keys.index(selected_task_key); self.tasks.selection_set(index); self.tasks.see(index)
         summary=self.vm.completion
         selected_event=self._selected_recovery()
+        if selected_event is None:
+            task_help="选中一项，可继续处理或删除无用任务。"
+        elif selected_event.outcome and selected_event.outcome.error_code:
+            detail={
+                "invalid_deepseek_response":"模型返回不完整。",
+                "deepseek_api_key_missing":"请先在模型设置填写API Key。",
+                "deepseek_auth_failed":"请先在模型设置检查API Key。",
+                "deepseek_rate_limited":"请检查模型额度，稍后重试。",
+                "deepseek_unavailable":"请检查网络，稍后重试。",
+                "cli_failed":"模型分析失败，可重试或切换模型。",
+                "recovery_failed":"资料恢复失败，请先查看资料。",
+            }.get(selected_event.outcome.error_code,"本次处理未完成。")
+            task_help=detail+"可重试、查看资料，或删除无用任务。"
+        else:
+            task_help="继续处理选中任务，或删除无用提醒；照片和学习记录会保留。"
+        self.task_help_var.set(task_help)
         target=self._selected_completion()
         detail_summary=target if selected_event is not None else summary
         weak="、".join(detail_summary.weak_knowledge_points) or "尚无"
@@ -1444,6 +1528,17 @@ class LearningAssistantApp:
                 "more":not page_modal,
                 "dashboard":(self.config.knowledge_root/"知识库首页.html").exists(),
                 "learning":not page_modal and not self.vm.busy and not self.vm.worker_failed}
+        states["task_process"]=states["retry"]
+        states["task_folder"]=bool(selected_event and target.saved_folder and target.saved_folder.exists())
+        selected_identity=(selected_event.outcome.job_id if selected_event and selected_event.outcome
+                           else selected_event.page_path.name if selected_event and selected_event.page_path else None)
+        states["delete_task"]=(states["retry"] and self._review_dialog is None
+                               and bool(selected_identity) and selected_identity != self.vm.session_id)
+        action=target.recovery_action
+        self.task_process_button.configure(text={
+            "retry_analysis":"重试分析", "repair_export":"更新知识库", "confirm_review":"确认题目",
+            "confirm_subject":"确认学科", "locate_recovery":"查看资料",
+        }.get(action,"继续拍摄" if selected_event and selected_event.kind == "recovered_capture" else "处理选中任务"))
         self.buttons["capture"].configure(text="开始下一份" if self.vm.sealed else "拍下这一页")
         self.buttons["details"].configure(text=(f"查看批改并确认（{target.review_count} 题）" if pending_review
                                                  else "查看本次批改结果"))

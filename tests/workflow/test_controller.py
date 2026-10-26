@@ -101,6 +101,109 @@ def controller_for(setup):
                               now=lambda: datetime(2026, 9, 15, tzinfo=timezone.utc))
 
 
+def test_deleted_failed_task_stays_deleted_after_restart_without_losing_photos(setup):
+    config, repo, analyzer, session = setup
+    controller = controller_for(setup)
+    analyzer.error = AnalysisError("invalid_response")
+    controller.finish_and_analyze(session)
+    before = (session.session_dir / "page_001.jpg").read_bytes()
+    controller.dismiss_task(session.session_dir.name)
+    assert session.session_dir.name not in {job.job_id for job in controller.recover_jobs()}
+    with pytest.raises(ValueError, match="已删除"):
+        controller.retry_pending(session.session_dir.name)
+    other = KnowledgeRepository(config)
+    try:
+        from qingzi_learning.workflow.controller import WorkflowController
+        restarted = WorkflowController(config, analyzer, other)
+        assert session.session_dir.name not in {job.job_id for job in restarted.recover_jobs()}
+    finally:
+        other.close()
+    assert (session.session_dir / "page_001.jpg").read_bytes() == before
+
+
+def test_deleted_review_task_preserves_knowledge_and_parent_reviews(setup):
+    _, repo, _, session = setup
+    controller = controller_for(setup)
+    controller.finish_and_analyze(session)
+    from qingzi_learning.knowledge.updater import KnowledgeUpdater
+    version = repo.review_question(session.session_dir.name, "1")["version"]
+    KnowledgeUpdater(repo).confirm_review(session.session_dir.name, "1", "incorrect", "1", "已复核",
+                                          expected_version=version)
+    before = repo.get_document(session.session_dir.name)
+    audit = repo.review_history(session.session_dir.name, "1")
+    stats = repo.dashboard_snapshot()["knowledge_points"]
+    controller.dismiss_task(session.session_dir.name)
+    assert repo.get_document(session.session_dir.name) == before
+    assert repo.review_history(session.session_dir.name, "1") == audit
+    assert repo.dashboard_snapshot()["knowledge_points"] == stats
+    assert session.session_dir.name not in {job.job_id for job in controller.recover_jobs()}
+
+
+def test_delete_unfinished_capture_does_not_stage_it_on_recovery(setup):
+    _, repo, _, session = setup
+    controller = controller_for(setup)
+    controller.dismiss_task(session.session_dir.name)
+    assert repo.is_task_dismissed(session.session_dir.name)
+    assert controller.recover_jobs() == []
+    assert (session.session_dir / "session.json").exists()
+
+
+def test_delete_rejects_unknown_and_root_task_targets(setup):
+    controller = controller_for(setup)
+    for identity in ("", "..", "unknown-task", str(setup[0].spool_root)):
+        with pytest.raises(ValueError):
+            controller.dismiss_task(identity)
+
+
+def test_deleted_corrupt_task_stays_hidden_and_sibling_still_recovers(setup):
+    config, repo, _, session = setup
+    controller = controller_for(setup)
+    broken = config.spool_root / "broken-task"
+    broken.mkdir()
+    (broken / "session.json").write_text("{damaged", encoding="utf-8")
+    session.finish()
+    controller.recover_jobs()
+    controller.dismiss_task("broken-task")
+    recovered = controller.recover_jobs()
+    assert "broken-task" not in {outcome.job_id for outcome in recovered}
+    assert session.session_dir.name in {outcome.job_id for outcome in recovered}
+    assert (broken / "session.json").read_text("utf-8") == "{damaged"
+
+
+def test_worker_delete_unfinished_task_survives_raw_capture_scan(setup):
+    from qingzi_learning.ui.app import WorkflowWorker
+    config, repo, _, session = setup
+    controller = controller_for(setup)
+    worker = WorkflowWorker(config, lambda: controller)
+    worker._controller = controller
+    worker._recover()
+    assert worker.events.get_nowait().kind == "recovered_capture"
+    worker.submit("dismiss_task", job_id=str(session.session_dir), context="recovered_job")
+    worker._process(worker._commands.get_nowait())
+    event = worker.events.get_nowait()
+    assert event.kind == "task_dismissed"
+    assert event.target_id == str(session.session_dir)
+    worker._recover()
+    assert worker.events.empty()
+    assert repo.is_task_dismissed(session.session_dir.name)
+
+
+def test_delete_split_batch_hides_child_reminders_without_removing_documents(mixed_setup):
+    from qingzi_learning.workflow.controller import WorkflowController
+    config, repo, analyzer, session = mixed_setup
+    controller = WorkflowController(config, analyzer, repo)
+    controller.finish_and_analyze(session)
+    controller.confirm_page_subject(session.session_dir.name, 2, "语文")
+    controller.confirm_page_subject(session.session_dir.name, 4, "英语")
+    children = repo.get_job(session.session_dir.name).payload["child_document_ids"]
+    assert children
+    documents = {child: repo.get_document(child) for child in children}
+    controller.dismiss_task(session.session_dir.name)
+    assert all(repo.is_task_dismissed(child) for child in children)
+    assert not ({session.session_dir.name, *children} & {item.job_id for item in controller.recover_jobs()})
+    assert {child: repo.get_document(child) for child in children} == documents
+
+
 def test_opening_review_migrates_legacy_annotation_to_non_covering_layout(setup):
     controller = controller_for(setup)
     _, repo, analyzer, session = setup

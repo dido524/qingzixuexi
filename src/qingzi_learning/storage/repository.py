@@ -654,6 +654,19 @@ class KnowledgeRepository:
             completed_at=row["completed_at"],
         )
 
+    def is_task_dismissed(self, task_id: str) -> bool:
+        return self.connection.execute(
+            "SELECT 1 FROM dismissed_tasks WHERE task_id=?", (task_id,)
+        ).fetchone() is not None
+
+    def dismiss_tasks(self, task_ids: tuple[str, ...]) -> None:
+        """Persist reminder removal without touching captures, reviews or statistics."""
+        with self.connection:
+            self.connection.executemany(
+                "INSERT OR IGNORE INTO dismissed_tasks(task_id) VALUES (?)",
+                ((identity,) for identity in task_ids),
+            )
+
     def get_job(self, job_id: str) -> WorkflowJob | None:
         row = self.connection.execute(
             "SELECT * FROM workflow_jobs WHERE job_id = ?", (job_id,)

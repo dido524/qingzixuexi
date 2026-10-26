@@ -210,7 +210,31 @@ class WorkflowController:
 
     def retry_pending(self, job_id: str) -> WorkflowOutcome:
         with self._lock:
+            if self.repo.is_task_dismissed(job_id):
+                raise ValueError("该历史任务已删除")
             return self._resume(self._require_job(job_id))
+
+    def dismiss_task(self, job_id: str) -> None:
+        """Remove one historical reminder durably, retaining all source evidence."""
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", job_id):
+            raise ValueError("无效的历史任务")
+        with self._lock:
+            row = self.repo.connection.execute(
+                "SELECT payload_json FROM workflow_jobs WHERE job_id=?", (job_id,)
+            ).fetchone()
+            directory = self.config.spool_root.absolute() / job_id
+            if row is None and not directory.is_dir():
+                raise ValueError("找不到历史任务")
+            children = ()
+            if row is not None:
+                try:
+                    payload = json.loads(row["payload_json"])
+                    children = tuple(payload.get("child_document_ids", ()))
+                except (ValueError, AttributeError, TypeError):
+                    pass  # A damaged task must still be removable from the list.
+            identities = (job_id, *(identity for identity in children
+                if isinstance(identity, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", identity)))
+            self.repo.dismiss_tasks(identities)
 
     def cancel(self) -> None:
         """Forward a UI shutdown request to an analyzer that supports cancellation.
@@ -240,6 +264,8 @@ class WorkflowController:
                 directories = []
                 outcomes[""] = self._recovery_error("", root)
             for directory in directories:
+                if self.repo.is_task_dismissed(directory.name):
+                    continue
                 try:
                     self._spool_guard(directory)
                     if not directory.is_dir():
@@ -251,7 +277,8 @@ class WorkflowController:
                 except Exception:
                     outcomes[directory.name] = self._recovery_error(directory.name, directory)
             try:
-                job_ids = self.repo.list_workflow_job_ids()
+                job_ids = [identity for identity in self.repo.list_workflow_job_ids()
+                           if not self.repo.is_task_dismissed(identity)]
             except Exception:
                 outcomes[""] = self._recovery_error("", self.config.app_data_root.absolute())
                 return list(outcomes.values())
